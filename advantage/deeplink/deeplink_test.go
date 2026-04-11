@@ -1,0 +1,337 @@
+package deeplink_test
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/golang-jwt/jwt/v5"
+	lti "github.com/robertjndw/go-lti"
+	"github.com/robertjndw/go-lti/advantage/deeplink"
+	"github.com/robertjndw/go-lti/internal/ltitest"
+)
+
+// newBuilder creates a Builder backed by a test registration and deep linking settings.
+func newBuilder(t *testing.T) (*deeplink.Builder, *lti.Registration) {
+	t.Helper()
+	key := ltitest.NewKey(t)
+	reg := &lti.Registration{
+		Issuer:         "https://platform.example.com",
+		ClientID:       "client-xyz",
+		KeySetURL:      "https://platform.example.com/jwks",
+		AuthLoginURL:   "https://platform.example.com/auth",
+		AuthTokenURL:   "https://platform.example.com/token",
+		ToolPrivateKey: key,
+		KID:            "tool-key-1",
+	}
+	settings := &lti.DeepLinkingSettings{
+		DeepLinkReturnURL:                 "https://platform.example.com/dl-return",
+		AcceptTypes:                       []string{"ltiResourceLink"},
+		AcceptPresentationDocumentTargets: []string{"iframe"},
+	}
+	return deeplink.New(reg, "deploy-1", settings), reg
+}
+
+// parseResponseJWT decodes a deep linking response JWT without verifying the signature.
+func parseResponseJWT(t *testing.T, tokenStr string) (jwt.MapClaims, *jwt.Token) {
+	t.Helper()
+	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
+	tok, _, err := parser.ParseUnverified(tokenStr, jwt.MapClaims{})
+	if err != nil {
+		t.Fatalf("failed to parse response JWT: %v", err)
+	}
+	claims, ok := tok.Claims.(jwt.MapClaims)
+	if !ok {
+		t.Fatal("unexpected claims type")
+	}
+	return claims, tok
+}
+
+// ── ResponseJWT structure ─────────────────────────────────────────────────────
+
+// Spec: iss must be the tool's client_id.
+func TestResponseJWT_IssIsClientID(t *testing.T) {
+	b, reg := newBuilder(t)
+	tok, err := b.ResponseJWT(nil)
+	if err != nil {
+		t.Fatalf("ResponseJWT failed: %v", err)
+	}
+	claims, _ := parseResponseJWT(t, tok)
+	if claims["iss"] != reg.ClientID {
+		t.Errorf("iss = %v, want %q", claims["iss"], reg.ClientID)
+	}
+}
+
+// Spec: aud must be the deep_link_return_url.
+func TestResponseJWT_AudIsReturnURL(t *testing.T) {
+	b, _ := newBuilder(t)
+	tok, err := b.ResponseJWT(nil)
+	if err != nil {
+		t.Fatalf("ResponseJWT failed: %v", err)
+	}
+	claims, _ := parseResponseJWT(t, tok)
+	aud, _ := claims["aud"].(string)
+	if aud != "https://platform.example.com/dl-return" {
+		t.Errorf("aud = %q, want https://platform.example.com/dl-return", aud)
+	}
+}
+
+// Spec: message_type claim must be LtiDeepLinkingResponse.
+func TestResponseJWT_MessageTypeIsDeepLinkingResponse(t *testing.T) {
+	b, _ := newBuilder(t)
+	tok, err := b.ResponseJWT(nil)
+	if err != nil {
+		t.Fatalf("ResponseJWT failed: %v", err)
+	}
+	claims, _ := parseResponseJWT(t, tok)
+	const claimKey = "https://purl.imsglobal.org/spec/lti/claim/message_type"
+	if claims[claimKey] != "LtiDeepLinkingResponse" {
+		t.Errorf("message_type = %v, want LtiDeepLinkingResponse", claims[claimKey])
+	}
+}
+
+// Spec: version must be "1.3.0".
+func TestResponseJWT_VersionIs130(t *testing.T) {
+	b, _ := newBuilder(t)
+	tok, err := b.ResponseJWT(nil)
+	if err != nil {
+		t.Fatalf("ResponseJWT failed: %v", err)
+	}
+	claims, _ := parseResponseJWT(t, tok)
+	const claimKey = "https://purl.imsglobal.org/spec/lti/claim/version"
+	if claims[claimKey] != "1.3.0" {
+		t.Errorf("version = %v, want 1.3.0", claims[claimKey])
+	}
+}
+
+// Spec: deployment_id must match the deployment used to create the builder.
+func TestResponseJWT_DeploymentID(t *testing.T) {
+	b, _ := newBuilder(t)
+	tok, err := b.ResponseJWT(nil)
+	if err != nil {
+		t.Fatalf("ResponseJWT failed: %v", err)
+	}
+	claims, _ := parseResponseJWT(t, tok)
+	const claimKey = "https://purl.imsglobal.org/spec/lti/claim/deployment_id"
+	if claims[claimKey] != "deploy-1" {
+		t.Errorf("deployment_id = %v, want deploy-1", claims[claimKey])
+	}
+}
+
+// Spec: JWT must be signed with RS256.
+func TestResponseJWT_SignedWithRS256(t *testing.T) {
+	b, _ := newBuilder(t)
+	tok, err := b.ResponseJWT(nil)
+	if err != nil {
+		t.Fatalf("ResponseJWT failed: %v", err)
+	}
+	_, raw := parseResponseJWT(t, tok)
+	if raw.Method.Alg() != "RS256" {
+		t.Errorf("alg = %q, want RS256", raw.Method.Alg())
+	}
+}
+
+// Spec: kid in header must match the registration's KID.
+func TestResponseJWT_KIDInHeader(t *testing.T) {
+	b, reg := newBuilder(t)
+	tok, err := b.ResponseJWT(nil)
+	if err != nil {
+		t.Fatalf("ResponseJWT failed: %v", err)
+	}
+	_, raw := parseResponseJWT(t, tok)
+	if raw.Header["kid"] != reg.KID {
+		t.Errorf("kid = %v, want %q", raw.Header["kid"], reg.KID)
+	}
+}
+
+// ── Content items ─────────────────────────────────────────────────────────────
+
+// The content_items claim must contain the resources passed in.
+func TestResponseJWT_ContentItemsIncluded(t *testing.T) {
+	b, _ := newBuilder(t)
+	resources := []deeplink.Resource{
+		deeplink.NewLTIResourceLink("Quiz 1", "https://tool.example.com/quiz/1"),
+		deeplink.NewLTIResourceLink("Quiz 2", "https://tool.example.com/quiz/2"),
+	}
+	tok, err := b.ResponseJWT(resources)
+	if err != nil {
+		t.Fatalf("ResponseJWT failed: %v", err)
+	}
+	claims, _ := parseResponseJWT(t, tok)
+	const claimKey = "https://purl.imsglobal.org/spec/lti-dl/claim/content_items"
+	items, ok := claims[claimKey].([]any)
+	if !ok {
+		t.Fatalf("content_items missing or wrong type: %T", claims[claimKey])
+	}
+	if len(items) != 2 {
+		t.Errorf("content_items len = %d, want 2", len(items))
+	}
+}
+
+// An empty resource list must still produce a valid JWT (zero content items).
+func TestResponseJWT_EmptyResources(t *testing.T) {
+	b, _ := newBuilder(t)
+	tok, err := b.ResponseJWT([]deeplink.Resource{})
+	if err != nil {
+		t.Fatalf("ResponseJWT failed with empty resources: %v", err)
+	}
+	if tok == "" {
+		t.Error("expected non-empty JWT")
+	}
+}
+
+// NewLTIResourceLink must set type=ltiResourceLink.
+func TestNewLTIResourceLink_Type(t *testing.T) {
+	r := deeplink.NewLTIResourceLink("title", "https://tool.example.com/launch")
+	if r.Type != "ltiResourceLink" {
+		t.Errorf("Type = %q, want ltiResourceLink", r.Type)
+	}
+}
+
+// NewLTIResourceLink must set the title and URL.
+func TestNewLTIResourceLink_TitleAndURL(t *testing.T) {
+	r := deeplink.NewLTIResourceLink("My Quiz", "https://tool.example.com/quiz")
+	if r.Title != "My Quiz" {
+		t.Errorf("Title = %q, want My Quiz", r.Title)
+	}
+	if r.URL != "https://tool.example.com/quiz" {
+		t.Errorf("URL = %q, want https://tool.example.com/quiz", r.URL)
+	}
+}
+
+// NewLTIResourceLinkWithGrade must attach a LineItem.
+func TestNewLTIResourceLinkWithGrade_HasLineItem(t *testing.T) {
+	li := deeplink.LineItemProperty{Label: "Quiz Score", ScoreMaximum: 100}
+	r := deeplink.NewLTIResourceLinkWithGrade("Quiz", "https://tool.example.com/quiz", li)
+	if r.LineItem == nil {
+		t.Fatal("LineItem must not be nil")
+	}
+	if r.LineItem.ScoreMaximum != 100 {
+		t.Errorf("ScoreMaximum = %v, want 100", r.LineItem.ScoreMaximum)
+	}
+}
+
+// ── Data echo ────────────────────────────────────────────────────────────────
+
+// Spec DL §5.1: if deep_linking_settings.data is set, it must be echoed back.
+func TestResponseJWT_EchoesDataField(t *testing.T) {
+	key := ltitest.NewKey(t)
+	reg := &lti.Registration{
+		Issuer:         "https://platform.example.com",
+		ClientID:       "client-xyz",
+		KeySetURL:      "https://platform.example.com/jwks",
+		AuthLoginURL:   "https://platform.example.com/auth",
+		AuthTokenURL:   "https://platform.example.com/token",
+		ToolPrivateKey: key,
+		KID:            "tool-key-1",
+	}
+	settings := &lti.DeepLinkingSettings{
+		DeepLinkReturnURL:                 "https://platform.example.com/dl-return",
+		AcceptTypes:                       []string{"ltiResourceLink"},
+		AcceptPresentationDocumentTargets: []string{"iframe"},
+		Data:                              "platform-state-opaque",
+	}
+	b := deeplink.New(reg, "deploy-1", settings)
+	tok, err := b.ResponseJWT(nil)
+	if err != nil {
+		t.Fatalf("ResponseJWT failed: %v", err)
+	}
+	claims, _ := parseResponseJWT(t, tok)
+	const dataKey = "https://purl.imsglobal.org/spec/lti-dl/claim/data"
+	if claims[dataKey] != "platform-state-opaque" {
+		t.Errorf("data = %v, want platform-state-opaque", claims[dataKey])
+	}
+}
+
+// ── ResponseFormHTML ─────────────────────────────────────────────────────────
+
+// The HTML response must contain a form that POSTs to the deep_link_return_url.
+func TestResponseFormHTML_ContainsFormWithReturnURL(t *testing.T) {
+	b, _ := newBuilder(t)
+	html, err := b.ResponseFormHTML(nil)
+	if err != nil {
+		t.Fatalf("ResponseFormHTML failed: %v", err)
+	}
+	if !strings.Contains(html, "https://platform.example.com/dl-return") {
+		t.Errorf("form action URL not found in HTML:\n%s", html)
+	}
+	if !strings.Contains(html, `method="POST"`) {
+		t.Errorf("form method POST not found in HTML")
+	}
+}
+
+// The HTML form must include a hidden JWT field named "JWT".
+func TestResponseFormHTML_ContainsJWTField(t *testing.T) {
+	b, _ := newBuilder(t)
+	html, err := b.ResponseFormHTML(nil)
+	if err != nil {
+		t.Fatalf("ResponseFormHTML failed: %v", err)
+	}
+	if !strings.Contains(html, `name="JWT"`) {
+		t.Errorf(`hidden input name="JWT" not found in HTML`)
+	}
+	if !strings.Contains(html, "eyJ") { // all JWTs begin with base64url of "{"
+		t.Errorf("JWT value not present in HTML")
+	}
+}
+
+// ── NewFromLaunch ─────────────────────────────────────────────────────────────
+
+// NewFromLaunch must return ErrDeepLinkingNotAvailable for a resource link launch.
+func TestNewFromLaunch_ResourceLaunch_ReturnsError(t *testing.T) {
+	key := ltitest.NewKey(t)
+	reg := &lti.Registration{
+		Issuer:         "https://platform.example.com",
+		ClientID:       "client-xyz",
+		KeySetURL:      "https://platform.example.com/jwks",
+		AuthLoginURL:   "https://platform.example.com/auth",
+		AuthTokenURL:   "https://platform.example.com/token",
+		ToolPrivateKey: key,
+		KID:            "tool-key-1",
+	}
+	ld := &lti.LaunchData{
+		LaunchID:     "launch-1",
+		Registration: reg,
+		Deployment:   &lti.Deployment{DeploymentID: "deploy-1"},
+		Claims: &lti.LTIClaims{
+			MessageType: lti.MessageTypeResourceLink,
+		},
+	}
+	_, err := deeplink.NewFromLaunch(ld)
+	if err == nil {
+		t.Error("expected ErrDeepLinkingNotAvailable for resource link launch")
+	}
+}
+
+// NewFromLaunch must succeed for a deep linking launch.
+func TestNewFromLaunch_DeepLinkLaunch_Succeeds(t *testing.T) {
+	key := ltitest.NewKey(t)
+	reg := &lti.Registration{
+		Issuer:         "https://platform.example.com",
+		ClientID:       "client-xyz",
+		KeySetURL:      "https://platform.example.com/jwks",
+		AuthLoginURL:   "https://platform.example.com/auth",
+		AuthTokenURL:   "https://platform.example.com/token",
+		ToolPrivateKey: key,
+		KID:            "tool-key-1",
+	}
+	ld := &lti.LaunchData{
+		LaunchID:     "launch-1",
+		Registration: reg,
+		Deployment:   &lti.Deployment{DeploymentID: "deploy-1"},
+		Claims: &lti.LTIClaims{
+			MessageType: lti.MessageTypeDeepLinking,
+			DeepLinkingSettings: &lti.DeepLinkingSettings{
+				DeepLinkReturnURL:                 "https://platform.example.com/dl-return",
+				AcceptTypes:                       []string{"ltiResourceLink"},
+				AcceptPresentationDocumentTargets: []string{"iframe"},
+			},
+		},
+	}
+	b, err := deeplink.NewFromLaunch(ld)
+	if err != nil {
+		t.Fatalf("NewFromLaunch failed: %v", err)
+	}
+	if b == nil {
+		t.Fatal("builder must not be nil")
+	}
+}

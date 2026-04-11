@@ -14,8 +14,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
-
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/robertjndw/go-lti"
@@ -268,6 +266,7 @@ func verifyJWT(ctx context.Context, tokenStr string, reg *lti.Registration, kid 
 	parser := jwt.NewParser(
 		jwt.WithValidMethods([]string{"RS256"}),
 		jwt.WithExpirationRequired(),
+		jwt.WithIssuedAt(),
 	)
 
 	var rawClaims jwt.MapClaims
@@ -298,11 +297,8 @@ func validateOIDCClaims(claims *lti.LTIClaims, reg *lti.Registration) error {
 	if !claims.Audience.Contains(reg.ClientID) {
 		return fmt.Errorf("%w: aud does not contain client_id %q", lti.ErrInvalidClaims, reg.ClientID)
 	}
-	if claims.ExpiresAt == 0 {
-		return fmt.Errorf("%w: exp claim is missing", lti.ErrInvalidClaims)
-	}
-	if time.Now().Unix() > claims.ExpiresAt {
-		return lti.ErrExpiredJWT
+	if claims.IssuedAt == 0 {
+		return fmt.Errorf("%w: iat claim is missing", lti.ErrMissingClaim)
 	}
 	if claims.Nonce == "" {
 		return fmt.Errorf("%w: nonce is missing", lti.ErrMissingClaim)

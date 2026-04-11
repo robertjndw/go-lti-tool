@@ -58,13 +58,14 @@ func TestResourceValidator_Valid_Passes(t *testing.T) {
 	}
 }
 
-// Spec: sub claim must be present in LtiResourceLinkRequest.
-func TestResourceValidator_MissingSub_Fails(t *testing.T) {
+// Spec §3: sub is OPTIONAL. It MUST be absent for anonymous launches.
+// The default validator does not require sub; tools check Claims.Subject themselves.
+func TestResourceValidator_MissingSub_Allowed(t *testing.T) {
 	v := launch.ResourceMessageValidator{}
 	c := minimalResourceClaims()
 	c.Subject = ""
-	if err := v.Validate(c); err == nil {
-		t.Error("expected error for missing sub")
+	if err := v.Validate(c); err != nil {
+		t.Errorf("anonymous launch (missing sub) must be allowed by default validator, got %v", err)
 	}
 }
 
@@ -140,13 +141,13 @@ func TestDeepLinkValidator_Valid_Passes(t *testing.T) {
 	}
 }
 
-// Spec: sub must be present.
-func TestDeepLinkValidator_MissingSub_Fails(t *testing.T) {
+// Spec §3: sub is OPTIONAL for deep linking requests too.
+func TestDeepLinkValidator_MissingSub_Allowed(t *testing.T) {
 	v := launch.DeepLinkMessageValidator{}
 	c := minimalDeepLinkClaims()
 	c.Subject = ""
-	if err := v.Validate(c); err == nil {
-		t.Error("expected error for missing sub")
+	if err := v.Validate(c); err != nil {
+		t.Errorf("anonymous deep-link launch (missing sub) must be allowed, got %v", err)
 	}
 }
 
@@ -241,6 +242,76 @@ func TestSubmissionReviewValidator_MissingResourceLink_Fails(t *testing.T) {
 	}
 	if err := v.Validate(c); err == nil {
 		t.Error("expected error for missing resource_link")
+	}
+}
+
+// ── Anonymous launch policy ───────────────────────────────────────────────────
+
+// Spec §3: sub is absent for anonymous launches. The default validator allows
+// this so that tools can handle anonymous launches if they choose to.
+// Tools that require authenticated users must check Claims.Subject != "".
+func TestResourceValidator_AnonymousLaunch_Allowed(t *testing.T) {
+	v := launch.ResourceMessageValidator{}
+	c := minimalResourceClaims()
+	c.Subject = ""
+	if err := v.Validate(c); err != nil {
+		t.Errorf("anonymous launch must pass the default validator, got %v", err)
+	}
+}
+
+func TestDeepLinkValidator_AnonymousLaunch_Allowed(t *testing.T) {
+	v := launch.DeepLinkMessageValidator{}
+	c := minimalDeepLinkClaims()
+	c.Subject = ""
+	if err := v.Validate(c); err != nil {
+		t.Errorf("anonymous deep-link launch must pass the default validator, got %v", err)
+	}
+}
+
+// ── SubmissionReviewMessageValidator (additional cases) ───────────────────────
+
+// Spec: version must be "1.3.0".
+func TestSubmissionReviewValidator_WrongVersion_Fails(t *testing.T) {
+	v := launch.SubmissionReviewMessageValidator{}
+	c := &lti.LTIClaims{
+		Subject:      "user-1",
+		MessageType:  lti.MessageTypeSubmissionReview,
+		Version:      "1.0.0",
+		Roles:        []string{},
+		ResourceLink: &lti.ResourceLink{ID: "link-1"},
+	}
+	if err := v.Validate(c); err == nil {
+		t.Error("expected error for wrong version")
+	}
+}
+
+// Spec: roles claim must be present (may be empty array).
+func TestSubmissionReviewValidator_NilRoles_Fails(t *testing.T) {
+	v := launch.SubmissionReviewMessageValidator{}
+	c := &lti.LTIClaims{
+		Subject:      "user-1",
+		MessageType:  lti.MessageTypeSubmissionReview,
+		Version:      lti.LTIVersion,
+		Roles:        nil,
+		ResourceLink: &lti.ResourceLink{ID: "link-1"},
+	}
+	if err := v.Validate(c); err == nil {
+		t.Error("expected error for nil roles")
+	}
+}
+
+// Spec §3: sub is optional; anonymous submission review launches are permitted.
+func TestSubmissionReviewValidator_MissingSub_Allowed(t *testing.T) {
+	v := launch.SubmissionReviewMessageValidator{}
+	c := &lti.LTIClaims{
+		Subject:      "",
+		MessageType:  lti.MessageTypeSubmissionReview,
+		Version:      lti.LTIVersion,
+		Roles:        []string{},
+		ResourceLink: &lti.ResourceLink{ID: "link-1"},
+	}
+	if err := v.Validate(c); err != nil {
+		t.Errorf("anonymous submission review launch must be allowed, got %v", err)
 	}
 }
 

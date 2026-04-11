@@ -15,6 +15,8 @@
 package deeplink
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"html/template"
 	"strings"
@@ -46,7 +48,11 @@ func NewFromLaunch(ld *lti.LaunchData) (*Builder, error) {
 	if !ld.HasDeepLinking() {
 		return nil, lti.ErrDeepLinkingNotAvailable
 	}
-	return New(ld.Registration, ld.Deployment.DeploymentID, ld.Claims.DeepLinkingSettings), nil
+	var deploymentID string
+	if ld.Deployment != nil {
+		deploymentID = ld.Deployment.DeploymentID
+	}
+	return New(ld.Registration, deploymentID, ld.Claims.DeepLinkingSettings), nil
 }
 
 // ResponseJWT builds and signs an LtiDeepLinkingResponse JWT containing the
@@ -58,7 +64,7 @@ func (b *Builder) ResponseJWT(resources []Resource) (string, error) {
 		"aud":   b.settings.DeepLinkReturnURL,
 		"iat":   now.Unix(),
 		"exp":   now.Add(600 * time.Second).Unix(),
-		"nonce": fmt.Sprintf("%d", now.UnixNano()),
+		"nonce": randomNonce(),
 		"https://purl.imsglobal.org/spec/lti/claim/message_type":  "LtiDeepLinkingResponse",
 		"https://purl.imsglobal.org/spec/lti/claim/version":       lti.LTIVersion,
 		"https://purl.imsglobal.org/spec/lti/claim/deployment_id": b.deploymentID,
@@ -77,6 +83,16 @@ func (b *Builder) ResponseJWT(resources []Resource) (string, error) {
 		return "", fmt.Errorf("deeplink: failed to sign response JWT: %w", err)
 	}
 	return signed, nil
+}
+
+// randomNonce returns a URL-safe cryptographically random string for use as a JWT nonce.
+func randomNonce() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// crypto/rand failure is extremely rare; fall back to timestamp.
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 // formTmpl is the HTML auto-submit form template.

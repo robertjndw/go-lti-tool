@@ -301,6 +301,97 @@ func TestServiceResponse_NextPageURL_EmptyWhenNoNext(t *testing.T) {
 	}
 }
 
+// ── LTI spec §4.2 — deployment_id in client assertion ────────────────────────
+
+// Spec §4.2: The client assertion JWT SHOULD include deployment_id.
+// Current behavior: deployment_id is NOT included. This test documents that
+// decision so it is intentional and visible. Tools requiring deployment-scoped
+// tokens must subclass or configure the assertion builder explicitly.
+func TestConnector_ClientAssertion_DoesNotIncludeDeploymentID(t *testing.T) {
+	cfg := &tokenServerConfig{accessToken: "tok-depid", expiresIn: 3600}
+	srv := newTokenServer(t, cfg)
+
+	reg := newReg(t, srv.URL)
+	conn := connector.New(reg, connector.WithHTTPClient(srv.Client()))
+
+	_, err := conn.GetAccessToken(context.Background(), []string{lti.ScopeAGSScore})
+	if err != nil {
+		t.Fatalf("GetAccessToken failed: %v", err)
+	}
+
+	assertion := extractAssertion(t, cfg.capturedRequests[0])
+	claims := parseAssertionClaims(t, assertion)
+
+	// deployment_id must NOT be present (current behavior — intentional omission).
+	if _, ok := claims["deployment_id"]; ok {
+		t.Errorf("deployment_id found in client assertion; if this is now intentional, update this test")
+	}
+}
+
+// ── Token endpoint error handling ─────────────────────────────────────────────
+
+// A malformed JSON body from the token endpoint must produce an error.
+func TestConnector_TokenResponse_MalformedJSON_ReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("not valid json")) //nolint:errcheck
+	}))
+	t.Cleanup(srv.Close)
+
+	reg := newReg(t, srv.URL)
+	conn := connector.New(reg)
+
+	_, err := conn.GetAccessToken(context.Background(), []string{lti.ScopeAGSScore})
+	if err == nil {
+		t.Error("expected error for malformed JSON token response, got nil")
+	}
+}
+
+// A non-200 response from the token endpoint must produce an error.
+func TestConnector_TokenResponse_Non200_ReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("unauthorized")) //nolint:errcheck
+	}))
+	t.Cleanup(srv.Close)
+
+	reg := newReg(t, srv.URL)
+	conn := connector.New(reg)
+
+	_, err := conn.GetAccessToken(context.Background(), []string{lti.ScopeAGSScore})
+	if err == nil {
+		t.Error("expected error for non-200 token response, got nil")
+	}
+}
+
+// When access_token is absent from the token response, the connector returns an
+// empty string without erroring. Service calls will subsequently fail with a
+// platform-side authentication error. Callers should validate the returned token.
+func TestConnector_TokenResponse_MissingAccessToken_ReturnsEmpty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"token_type": "Bearer",
+			"expires_in": 3600,
+			// access_token intentionally omitted
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	reg := newReg(t, srv.URL)
+	conn := connector.New(reg)
+
+	token, err := conn.GetAccessToken(context.Background(), []string{lti.ScopeAGSScore})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Document current behavior: empty string is returned, not an error.
+	if token != "" {
+		t.Errorf("expected empty token for missing access_token field, got %q", token)
+	}
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 // extractAssertion parses a URL-encoded form body and returns the client_assertion value.

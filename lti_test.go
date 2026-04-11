@@ -82,6 +82,19 @@ func TestLaunchData_HasAGS_False_WhenNil(t *testing.T) {
 	}
 }
 
+// HasAGS must also return true when only the single lineitem URL is set (no lineitems container).
+// This is a valid AGS scenario for resource-link-scoped launches.
+func TestLaunchData_HasAGS_True_WhenOnlyLineitemSet(t *testing.T) {
+	ld := &lti.LaunchData{
+		Claims: &lti.LTIClaims{
+			AGS: &lti.AGSClaim{Lineitem: "https://platform.example.com/lineitems/1"},
+		},
+	}
+	if !ld.HasAGS() {
+		t.Error("HasAGS must return true when AGS claim has Lineitem URL (single item, no container)")
+	}
+}
+
 func TestLaunchData_HasNRPS_True(t *testing.T) {
 	ld := &lti.LaunchData{
 		Claims: &lti.LTIClaims{

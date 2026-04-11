@@ -316,6 +316,11 @@ func validateOIDCClaims(claims *lti.LTIClaims, reg *lti.Registration) error {
 	if claims.Version == "" {
 		return fmt.Errorf("%w: version is missing", lti.ErrMissingClaim)
 	}
+	// Spec §4.3.2: target_link_uri is required and must be read from the signed JWT,
+	// never from the unsigned login initiation request.
+	if claims.TargetLinkURI == "" {
+		return fmt.Errorf("%w: target_link_uri is missing", lti.ErrMissingClaim)
+	}
 	return nil
 }
 

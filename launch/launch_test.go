@@ -628,6 +628,89 @@ func TestLaunch_HasNRPS_WhenMembershipsURLPresent(t *testing.T) {
 	}
 }
 
+// ── LTI spec §3 — Anonymous launches ─────────────────────────────────────────
+
+// Spec §3: A launch without a sub claim is an anonymous launch and must succeed.
+// The tool signals anonymous access by checking Claims.Subject == "".
+func TestLaunch_AnonymousResourceLinkRequest_Succeeds(t *testing.T) {
+	f := newFixture(t)
+	nonce := "nonce-anon"
+	f.storeNonce(t, nonce)
+	state := "state-anon"
+	f.setStateCookie(state)
+
+	token := f.validToken(t, nonce, func(c jwt.MapClaims) {
+		delete(c, "sub") // anonymous launch — no user identity
+	})
+
+	ld, err := f.validate(t, state, token)
+	if err != nil {
+		t.Fatalf("anonymous launch should succeed, got %v", err)
+	}
+	if ld.Claims.Subject != "" {
+		t.Errorf("Claims.Subject must be empty for anonymous launch, got %q", ld.Claims.Subject)
+	}
+}
+
+// ── LTI spec §4.3.2 — target_link_uri ───────────────────────────────────────
+
+// Spec: target_link_uri is a required claim in the signed JWT.
+// A launch without target_link_uri must be rejected.
+func TestLaunch_MissingTargetLinkURI_Rejected(t *testing.T) {
+	f := newFixture(t)
+	nonce := "nonce-notlu"
+	f.storeNonce(t, nonce)
+	state := "state-notlu"
+	f.setStateCookie(state)
+
+	token := f.validToken(t, nonce, func(c jwt.MapClaims) {
+		delete(c, "https://purl.imsglobal.org/spec/lti/claim/target_link_uri")
+	})
+
+	_, err := f.validate(t, state, token)
+	if !errors.Is(err, lti.ErrMissingClaim) {
+		t.Errorf("expected ErrMissingClaim for missing target_link_uri, got %v", err)
+	}
+}
+
+// Spec: An empty target_link_uri is treated the same as a missing one.
+func TestLaunch_EmptyTargetLinkURI_Rejected(t *testing.T) {
+	f := newFixture(t)
+	nonce := "nonce-emptlu"
+	f.storeNonce(t, nonce)
+	state := "state-emptlu"
+	f.setStateCookie(state)
+
+	token := f.validToken(t, nonce, func(c jwt.MapClaims) {
+		c["https://purl.imsglobal.org/spec/lti/claim/target_link_uri"] = ""
+	})
+
+	_, err := f.validate(t, state, token)
+	if !errors.Is(err, lti.ErrMissingClaim) {
+		t.Errorf("expected ErrMissingClaim for empty target_link_uri, got %v", err)
+	}
+}
+
+// Spec: The validated LaunchData must expose the target_link_uri from the signed JWT.
+func TestLaunch_TargetLinkURI_PresentInLaunchData(t *testing.T) {
+	f := newFixture(t)
+	nonce := "nonce-tlu"
+	f.storeNonce(t, nonce)
+	state := "state-tlu"
+	f.setStateCookie(state)
+
+	const wantURI = "https://tool.example.com/launch"
+	token := f.validToken(t, nonce, nil) // DefaultClaims already includes target_link_uri
+
+	ld, err := f.validate(t, state, token)
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+	if ld.Claims.TargetLinkURI != wantURI {
+		t.Errorf("TargetLinkURI = %q, want %q", ld.Claims.TargetLinkURI, wantURI)
+	}
+}
+
 // ── Key rotation ──────────────────────────────────────────────────────────────
 
 // The SDK must handle JWKS with multiple keys and select the correct one by KID.

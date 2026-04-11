@@ -3,6 +3,7 @@ package deeplink_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	lti "github.com/robertjndw/go-lti"
@@ -271,6 +272,72 @@ func TestResponseFormHTML_ContainsJWTField(t *testing.T) {
 	}
 	if !strings.Contains(html, "eyJ") { // all JWTs begin with base64url of "{"
 		t.Errorf("JWT value not present in HTML")
+	}
+}
+
+// ── JWT TTL ───────────────────────────────────────────────────────────────────
+
+// DL spec §5.3: The response JWT must include iat and exp claims.
+// exp must be iat + 600 seconds (10 minutes).
+func TestResponseJWT_IATAndEXPAreSet(t *testing.T) {
+	b, _ := newBuilder(t)
+
+	before := time.Now().Unix()
+	tok, err := b.ResponseJWT(nil)
+	after := time.Now().Unix()
+
+	if err != nil {
+		t.Fatalf("ResponseJWT failed: %v", err)
+	}
+	claims, _ := parseResponseJWT(t, tok)
+
+	iat, ok := claims["iat"].(float64)
+	if !ok {
+		t.Fatalf("iat missing or wrong type: %T", claims["iat"])
+	}
+	exp, ok := claims["exp"].(float64)
+	if !ok {
+		t.Fatalf("exp missing or wrong type: %T", claims["exp"])
+	}
+
+	if int64(iat) < before || int64(iat) > after {
+		t.Errorf("iat = %v, expected between %d and %d", iat, before, after)
+	}
+	const wantTTL = 600
+	if int64(exp)-int64(iat) != wantTTL {
+		t.Errorf("exp-iat = %v, want %d seconds", int64(exp)-int64(iat), wantTTL)
+	}
+}
+
+// ── HTML form safety ──────────────────────────────────────────────────────────
+
+// ResponseFormHTML must HTML-escape the return URL to prevent form injection.
+// A return URL containing HTML meta-characters must not produce injectable markup.
+func TestResponseFormHTML_ReturnURL_IsHTMLEscaped(t *testing.T) {
+	key := ltitest.NewKey(t)
+	reg := &lti.Registration{
+		Issuer:         "https://platform.example.com",
+		ClientID:       "client-xyz",
+		KeySetURL:      "https://platform.example.com/jwks",
+		AuthLoginURL:   "https://platform.example.com/auth",
+		AuthTokenURL:   "https://platform.example.com/token",
+		ToolPrivateKey: key,
+		KID:            "tool-key-1",
+	}
+	settings := &lti.DeepLinkingSettings{
+		DeepLinkReturnURL:                 `https://platform.example.com/return"><script>alert(1)</script>`,
+		AcceptTypes:                       []string{"ltiResourceLink"},
+		AcceptPresentationDocumentTargets: []string{"iframe"},
+	}
+	b := deeplink.New(reg, "deploy-1", settings)
+
+	html, err := b.ResponseFormHTML(nil)
+	if err != nil {
+		t.Fatalf("ResponseFormHTML failed: %v", err)
+	}
+	// The raw injection string must not appear verbatim in the output.
+	if strings.Contains(html, `"><script>`) {
+		t.Error("return URL injection not escaped: raw <script> tag found in HTML output")
 	}
 }
 

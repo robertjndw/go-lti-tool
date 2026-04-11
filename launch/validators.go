@@ -31,10 +31,13 @@ func (ResourceMessageValidator) CanValidate(claims *lti.LTIClaims) bool {
 	return claims.MessageType == lti.MessageTypeResourceLink
 }
 
+// Validate checks LTI-specific claims for an LtiResourceLinkRequest.
+//
+// Anonymous launches: The LTI 1.3 spec (§3) allows sub to be absent when the
+// platform does not know the user's identity. sub is therefore NOT required
+// here. Callers should check Claims.Subject == "" to detect anonymous launches
+// and handle them according to their own policy.
 func (ResourceMessageValidator) Validate(claims *lti.LTIClaims) error {
-	if claims.Subject == "" {
-		return fmt.Errorf("lti: LtiResourceLinkRequest missing 'sub' claim")
-	}
 	if claims.Version != lti.LTIVersion {
 		return fmt.Errorf("lti: LtiResourceLinkRequest version must be %q, got %q", lti.LTIVersion, claims.Version)
 	}
@@ -57,10 +60,9 @@ func (DeepLinkMessageValidator) CanValidate(claims *lti.LTIClaims) bool {
 	return claims.MessageType == lti.MessageTypeDeepLinking
 }
 
+// Validate checks LTI-specific claims for an LtiDeepLinkingRequest.
+// See ResourceMessageValidator.Validate for the anonymous-launch policy.
 func (DeepLinkMessageValidator) Validate(claims *lti.LTIClaims) error {
-	if claims.Subject == "" {
-		return fmt.Errorf("lti: LtiDeepLinkingRequest missing 'sub' claim")
-	}
 	if claims.Version != lti.LTIVersion {
 		return fmt.Errorf("lti: LtiDeepLinkingRequest version must be %q, got %q", lti.LTIVersion, claims.Version)
 	}
@@ -90,9 +92,6 @@ func (SubmissionReviewMessageValidator) CanValidate(claims *lti.LTIClaims) bool 
 }
 
 func (SubmissionReviewMessageValidator) Validate(claims *lti.LTIClaims) error {
-	if claims.Subject == "" {
-		return fmt.Errorf("lti: LtiSubmissionReviewRequest missing 'sub' claim")
-	}
 	if claims.Version != lti.LTIVersion {
 		return fmt.Errorf("lti: LtiSubmissionReviewRequest version must be %q, got %q", lti.LTIVersion, claims.Version)
 	}

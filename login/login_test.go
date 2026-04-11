@@ -3,6 +3,7 @@ package login_test
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -331,5 +332,84 @@ func TestLogin_MatchingClientID_Accepted(t *testing.T) {
 	_, _, err := doLogin(t, cfg, params)
 	if err != nil {
 		t.Errorf("expected success when client_id matches, got %v", err)
+	}
+}
+
+// Spec §4.1.1: lti_deployment_id, if provided, must be forwarded to the platform.
+func TestLogin_ForwardsLTIDeploymentID(t *testing.T) {
+	cfg, reg := newLoginConfig(t)
+	params := validParams(reg)
+	params["lti_deployment_id"] = "deploy-99"
+
+	rawURL, _, err := doLogin(t, cfg, params)
+	if err != nil {
+		t.Fatalf("HandleLogin failed: %v", err)
+	}
+	u := parseRedirect(t, rawURL)
+	if u.Query().Get("lti_deployment_id") != "deploy-99" {
+		t.Errorf("lti_deployment_id not forwarded: got %q", u.Query().Get("lti_deployment_id"))
+	}
+}
+
+// lti_deployment_id must NOT appear in the redirect when absent from the login request.
+func TestLogin_OmitsLTIDeploymentIDWhenNotProvided(t *testing.T) {
+	cfg, reg := newLoginConfig(t)
+
+	rawURL, _, err := doLogin(t, cfg, validParams(reg))
+	if err != nil {
+		t.Fatalf("HandleLogin failed: %v", err)
+	}
+	u := parseRedirect(t, rawURL)
+	if u.Query().Has("lti_deployment_id") {
+		t.Errorf("lti_deployment_id must not appear when not provided, got %q", u.Query().Get("lti_deployment_id"))
+	}
+}
+
+// ── login.Handler middleware ──────────────────────────────────────────────────
+
+// Handler must redirect (302) and set the state cookie on a valid login request.
+func TestLogin_Handler_ValidRequest_Redirects(t *testing.T) {
+	cfg, reg := newLoginConfig(t)
+
+	req := ltitest.MakeLoginRequest(t, validParams(reg))
+	w := httptest.NewRecorder()
+	login.Handler(cfg).ServeHTTP(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("expected 302 Found, got %d: %s", w.Code, w.Body.String())
+	}
+	loc := w.Header().Get("Location")
+	if loc == "" {
+		t.Fatal("expected Location header in redirect response")
+	}
+	if !strings.HasPrefix(loc, reg.AuthLoginURL) {
+		t.Errorf("Location %q must start with AuthLoginURL %q", loc, reg.AuthLoginURL)
+	}
+	// State cookie must be set.
+	cookies := w.Result().Cookies()
+	found := false
+	for _, c := range cookies {
+		if strings.HasPrefix(c.Name, "lti1p3_") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected a lti1p3_<state> cookie to be set on the response")
+	}
+}
+
+// Handler must return 400 Bad Request for an invalid login request (missing iss).
+func TestLogin_Handler_InvalidRequest_Returns400(t *testing.T) {
+	cfg, reg := newLoginConfig(t)
+
+	params := validParams(reg)
+	delete(params, "iss")
+	req := ltitest.MakeLoginRequest(t, params)
+	w := httptest.NewRecorder()
+	login.Handler(cfg).ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 Bad Request, got %d", w.Code)
 	}
 }

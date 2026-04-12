@@ -8,13 +8,12 @@ package login
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 	"net/http"
 	"net/url"
 
 	"github.com/robertjndw/go-lti"
+	"github.com/robertjndw/go-lti/internal/randutil"
 )
 
 // Config holds the dependencies for the OIDC login initiation handler.
@@ -97,11 +96,11 @@ func HandleLogin(ctx context.Context, cfg Config, r *http.Request) (redirectURL 
 		return "", nil, fmt.Errorf("lti/login: client_id mismatch: got %q, want %q", clientID, reg.ClientID)
 	}
 
-	state, err := randomToken(32)
+	state, err := randutil.Token(32)
 	if err != nil {
 		return "", nil, fmt.Errorf("lti/login: failed to generate state: %w", err)
 	}
-	nonce, err := randomToken(32)
+	nonce, err := randutil.Token(32)
 	if err != nil {
 		return "", nil, fmt.Errorf("lti/login: failed to generate nonce: %w", err)
 	}
@@ -147,15 +146,6 @@ func HandleLogin(ctx context.Context, cfg Config, r *http.Request) (redirectURL 
 	authURL.RawQuery = params.Encode()
 
 	return authURL.String(), cookieList, nil
-}
-
-// randomToken returns a URL-safe random string of n bytes encoded as base64.
-func randomToken(n int) (string, error) {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 // cookieRecorder is a minimal http.ResponseWriter that only captures Set-Cookie calls.

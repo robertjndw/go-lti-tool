@@ -4,6 +4,7 @@ package jwks
 
 import (
 	"crypto/rsa"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -70,46 +71,10 @@ func (ks *KeySet) PublicJWKS() ([]byte, error) {
 			ALG: "RS256",
 			Use: "sig",
 			KID: kid,
-			N:   base64URLEncodeBigInt(pub.N),
-			E:   base64URLEncodeInt(pub.E),
+			N:   base64.RawURLEncoding.EncodeToString(pub.N.Bytes()),
+			E:   base64.RawURLEncoding.EncodeToString(big.NewInt(int64(pub.E)).Bytes()),
 		}
 		doc.Keys = append(doc.Keys, jwk)
 	}
 	return json.Marshal(doc)
-}
-
-// base64URLEncodeBigInt encodes a big.Int as an unpadded base64url string (JWK "n").
-func base64URLEncodeBigInt(n *big.Int) string {
-	return encodeBase64URL(n.Bytes())
-}
-
-// base64URLEncodeInt encodes an int as an unpadded base64url string (JWK "e").
-func base64URLEncodeInt(e int) string {
-	b := big.NewInt(int64(e)).Bytes()
-	return encodeBase64URL(b)
-}
-
-// encodeBase64URL returns the RFC 4648 §5 (URL-safe, no padding) base64 encoding.
-func encodeBase64URL(b []byte) string {
-	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-	result := make([]byte, 0, (len(b)*4+2)/3)
-	for i := 0; i < len(b); i += 3 {
-		var b0, b1, b2 byte
-		b0 = b[i]
-		if i+1 < len(b) {
-			b1 = b[i+1]
-		}
-		if i+2 < len(b) {
-			b2 = b[i+2]
-		}
-		result = append(result, alphabet[b0>>2])
-		result = append(result, alphabet[(b0&0x03)<<4|b1>>4])
-		if i+1 < len(b) {
-			result = append(result, alphabet[(b1&0x0f)<<2|b2>>6])
-		}
-		if i+2 < len(b) {
-			result = append(result, alphabet[b2&0x3f])
-		}
-	}
-	return string(result)
 }

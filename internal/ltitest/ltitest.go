@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -260,37 +261,10 @@ func MakeLoginRequest(t *testing.T, params map[string]string) *http.Request {
 	return httptest.NewRequest(http.MethodGet, u, nil)
 }
 
-// base64URLBigInt encodes a big.Int as unpadded base64url (JWK modulus).
 func base64URLBigInt(n *big.Int) string {
-	return encodeBase64URL(n.Bytes())
+	return base64.RawURLEncoding.EncodeToString(n.Bytes())
 }
 
-// base64URLInt encodes an int as unpadded base64url (JWK exponent).
 func base64URLInt(e int) string {
-	b := big.NewInt(int64(e)).Bytes()
-	return encodeBase64URL(b)
-}
-
-func encodeBase64URL(b []byte) string {
-	const alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-	out := make([]byte, 0, (len(b)*4+2)/3)
-	for i := 0; i < len(b); i += 3 {
-		var b0, b1, b2 byte
-		b0 = b[i]
-		if i+1 < len(b) {
-			b1 = b[i+1]
-		}
-		if i+2 < len(b) {
-			b2 = b[i+2]
-		}
-		out = append(out, alpha[b0>>2])
-		out = append(out, alpha[(b0&0x03)<<4|b1>>4])
-		if i+1 < len(b) {
-			out = append(out, alpha[(b1&0x0f)<<2|b2>>6])
-		}
-		if i+2 < len(b) {
-			out = append(out, alpha[b2&0x3f])
-		}
-	}
-	return string(out)
+	return base64.RawURLEncoding.EncodeToString(big.NewInt(int64(e)).Bytes())
 }

@@ -7,16 +7,17 @@ package launch
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/lestrrat-go/jwx/v3/jwk"
 	"github.com/robertjndw/go-lti"
+	"github.com/robertjndw/go-lti/internal/randutil"
 )
 
 // contextKey is an unexported type for context keys in this package.
@@ -330,11 +331,6 @@ func runMessageValidators(validators []MessageValidator, claims *lti.LTIClaims) 
 	return fmt.Errorf("%w: no validator found for message_type %q", lti.ErrInvalidClaims, claims.MessageType)
 }
 
-// generateLaunchID returns a random base64url-encoded 24-byte token.
 func generateLaunchID() (string, error) {
-	b := make([]byte, 24)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
+	return randutil.Token(24)
 }

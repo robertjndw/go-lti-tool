@@ -24,6 +24,28 @@ func DefaultValidators() []MessageValidator {
 	}
 }
 
+// validateVersion checks that the LTI version claim equals "1.3.0".
+func validateVersion(msgType string, claims *lti.LTIClaims) error {
+	if claims.Version != lti.LTIVersion {
+		return fmt.Errorf("lti: %s version must be %q, got %q", msgType, lti.LTIVersion, claims.Version)
+	}
+	return nil
+}
+
+// validateResourceLink checks that roles and resource_link claims are present and valid.
+func validateResourceLink(msgType string, claims *lti.LTIClaims) error {
+	if claims.Roles == nil {
+		return fmt.Errorf("lti: %s missing 'roles' claim", msgType)
+	}
+	if claims.ResourceLink == nil {
+		return fmt.Errorf("lti: %s missing 'resource_link' claim", msgType)
+	}
+	if claims.ResourceLink.ID == "" {
+		return fmt.Errorf("lti: %s resource_link.id is empty", msgType)
+	}
+	return nil
+}
+
 // ResourceMessageValidator validates LtiResourceLinkRequest messages.
 type ResourceMessageValidator struct{}
 
@@ -38,19 +60,10 @@ func (ResourceMessageValidator) CanValidate(claims *lti.LTIClaims) bool {
 // here. Callers should check Claims.Subject == "" to detect anonymous launches
 // and handle them according to their own policy.
 func (ResourceMessageValidator) Validate(claims *lti.LTIClaims) error {
-	if claims.Version != lti.LTIVersion {
-		return fmt.Errorf("lti: LtiResourceLinkRequest version must be %q, got %q", lti.LTIVersion, claims.Version)
+	if err := validateVersion(lti.MessageTypeResourceLink, claims); err != nil {
+		return err
 	}
-	if claims.Roles == nil {
-		return fmt.Errorf("lti: LtiResourceLinkRequest missing 'roles' claim")
-	}
-	if claims.ResourceLink == nil {
-		return fmt.Errorf("lti: LtiResourceLinkRequest missing 'resource_link' claim")
-	}
-	if claims.ResourceLink.ID == "" {
-		return fmt.Errorf("lti: LtiResourceLinkRequest resource_link.id is empty")
-	}
-	return nil
+	return validateResourceLink(lti.MessageTypeResourceLink, claims)
 }
 
 // DeepLinkMessageValidator validates LtiDeepLinkingRequest messages.
@@ -63,23 +76,23 @@ func (DeepLinkMessageValidator) CanValidate(claims *lti.LTIClaims) bool {
 // Validate checks LTI-specific claims for an LtiDeepLinkingRequest.
 // See ResourceMessageValidator.Validate for the anonymous-launch policy.
 func (DeepLinkMessageValidator) Validate(claims *lti.LTIClaims) error {
-	if claims.Version != lti.LTIVersion {
-		return fmt.Errorf("lti: LtiDeepLinkingRequest version must be %q, got %q", lti.LTIVersion, claims.Version)
+	if err := validateVersion(lti.MessageTypeDeepLinking, claims); err != nil {
+		return err
 	}
 	if claims.Roles == nil {
-		return fmt.Errorf("lti: LtiDeepLinkingRequest missing 'roles' claim")
+		return fmt.Errorf("lti: %s missing 'roles' claim", lti.MessageTypeDeepLinking)
 	}
 	if claims.DeepLinkingSettings == nil {
-		return fmt.Errorf("lti: LtiDeepLinkingRequest missing deep_linking_settings claim")
+		return fmt.Errorf("lti: %s missing deep_linking_settings claim", lti.MessageTypeDeepLinking)
 	}
 	if claims.DeepLinkingSettings.DeepLinkReturnURL == "" {
-		return fmt.Errorf("lti: LtiDeepLinkingRequest deep_link_return_url is empty")
+		return fmt.Errorf("lti: %s deep_link_return_url is empty", lti.MessageTypeDeepLinking)
 	}
 	if len(claims.DeepLinkingSettings.AcceptTypes) == 0 {
-		return fmt.Errorf("lti: LtiDeepLinkingRequest accept_types is empty")
+		return fmt.Errorf("lti: %s accept_types is empty", lti.MessageTypeDeepLinking)
 	}
 	if len(claims.DeepLinkingSettings.AcceptPresentationDocumentTargets) == 0 {
-		return fmt.Errorf("lti: LtiDeepLinkingRequest accept_presentation_document_targets is empty")
+		return fmt.Errorf("lti: %s accept_presentation_document_targets is empty", lti.MessageTypeDeepLinking)
 	}
 	return nil
 }
@@ -92,17 +105,8 @@ func (SubmissionReviewMessageValidator) CanValidate(claims *lti.LTIClaims) bool 
 }
 
 func (SubmissionReviewMessageValidator) Validate(claims *lti.LTIClaims) error {
-	if claims.Version != lti.LTIVersion {
-		return fmt.Errorf("lti: LtiSubmissionReviewRequest version must be %q, got %q", lti.LTIVersion, claims.Version)
+	if err := validateVersion(lti.MessageTypeSubmissionReview, claims); err != nil {
+		return err
 	}
-	if claims.Roles == nil {
-		return fmt.Errorf("lti: LtiSubmissionReviewRequest missing 'roles' claim")
-	}
-	if claims.ResourceLink == nil {
-		return fmt.Errorf("lti: LtiSubmissionReviewRequest missing 'resource_link' claim")
-	}
-	if claims.ResourceLink.ID == "" {
-		return fmt.Errorf("lti: LtiSubmissionReviewRequest resource_link.id is empty")
-	}
-	return nil
+	return validateResourceLink(lti.MessageTypeSubmissionReview, claims)
 }

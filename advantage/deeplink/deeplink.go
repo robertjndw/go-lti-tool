@@ -15,8 +15,6 @@
 package deeplink
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 	"html/template"
 	"strings"
@@ -24,6 +22,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/robertjndw/go-lti"
+	"github.com/robertjndw/go-lti/internal/randutil"
 )
 
 // Builder constructs LTI Deep Linking response JWTs and forms.
@@ -58,21 +57,25 @@ func NewFromLaunch(ld *lti.LaunchData) (*Builder, error) {
 // ResponseJWT builds and signs an LtiDeepLinkingResponse JWT containing the
 // selected content items.
 func (b *Builder) ResponseJWT(resources []Resource) (string, error) {
+	nonce, err := randomNonce()
+	if err != nil {
+		return "", fmt.Errorf("deeplink: failed to generate nonce: %w", err)
+	}
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"iss":   b.reg.ClientID,
-		"aud":   b.settings.DeepLinkReturnURL,
+		"aud":   b.reg.Issuer, // DL 2.0 §4.1: aud must be the platform's issuer
 		"iat":   now.Unix(),
 		"exp":   now.Add(600 * time.Second).Unix(),
-		"nonce": randomNonce(),
-		"https://purl.imsglobal.org/spec/lti/claim/message_type":  "LtiDeepLinkingResponse",
-		"https://purl.imsglobal.org/spec/lti/claim/version":       lti.LTIVersion,
-		"https://purl.imsglobal.org/spec/lti/claim/deployment_id": b.deploymentID,
-		"https://purl.imsglobal.org/spec/lti-dl/claim/content_items": resources,
+		"nonce": nonce,
+		lti.ClaimPrefix + "message_type":  lti.MessageTypeDeepLinkingResponse,
+		lti.ClaimPrefix + "version":       lti.LTIVersion,
+		lti.ClaimPrefix + "deployment_id": b.deploymentID,
+		lti.ClaimPrefixDL + "content_items": resources,
 	}
 
 	if b.settings.Data != "" {
-		claims["https://purl.imsglobal.org/spec/lti-dl/claim/data"] = b.settings.Data
+		claims[lti.ClaimPrefixDL+"data"] = b.settings.Data
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
@@ -85,14 +88,8 @@ func (b *Builder) ResponseJWT(resources []Resource) (string, error) {
 	return signed, nil
 }
 
-// randomNonce returns a URL-safe cryptographically random string for use as a JWT nonce.
-func randomNonce() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		// crypto/rand failure is extremely rare; fall back to timestamp.
-		return fmt.Sprintf("%d", time.Now().UnixNano())
-	}
-	return base64.RawURLEncoding.EncodeToString(b)
+func randomNonce() (string, error) {
+	return randutil.Token(16)
 }
 
 // formTmpl is the HTML auto-submit form template.

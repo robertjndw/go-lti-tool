@@ -62,17 +62,18 @@ func TestResponseJWT_IssIsClientID(t *testing.T) {
 	}
 }
 
-// Spec: aud must be the deep_link_return_url.
-func TestResponseJWT_AudIsReturnURL(t *testing.T) {
-	b, _ := newBuilder(t)
+// Spec DL 2.0 §4.1: aud must be the platform's issuer (iss of the LtiDeepLinkingRequest),
+// not the deep_link_return_url.
+func TestResponseJWT_AudIsPlatformIssuer(t *testing.T) {
+	b, reg := newBuilder(t)
 	tok, err := b.ResponseJWT(nil)
 	if err != nil {
 		t.Fatalf("ResponseJWT failed: %v", err)
 	}
 	claims, _ := parseResponseJWT(t, tok)
 	aud, _ := claims["aud"].(string)
-	if aud != "https://platform.example.com/dl-return" {
-		t.Errorf("aud = %q, want https://platform.example.com/dl-return", aud)
+	if aud != reg.Issuer {
+		t.Errorf("aud = %q, want platform issuer %q", aud, reg.Issuer)
 	}
 }
 

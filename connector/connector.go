@@ -10,8 +10,6 @@ package connector
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,6 +23,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/robertjndw/go-lti"
+	"github.com/robertjndw/go-lti/internal/randutil"
 )
 
 // Connector holds a platform Registration and manages OAuth2 access tokens for
@@ -32,7 +31,7 @@ import (
 type Connector struct {
 	reg        *lti.Registration
 	httpClient *http.Client
-	mu         sync.Mutex
+	mu         sync.RWMutex
 	tokens     map[string]*tokenEntry // keyed by sorted scope string
 }
 
@@ -76,16 +75,15 @@ type tokenResponse struct {
 func (c *Connector) GetAccessToken(ctx context.Context, scopes []string) (string, error) {
 	key := scopeKey(scopes)
 
-	c.mu.Lock()
+	c.mu.RLock()
 	entry, ok := c.tokens[key]
-	c.mu.Unlock()
+	c.mu.RUnlock()
 
 	if ok && time.Now().Before(entry.expiresAt) {
 		return entry.accessToken, nil
 	}
 
-	// Build the client assertion JWT.
-	jti, err := randomToken(16)
+	jti, err := randutil.Token(16)
 	if err != nil {
 		return "", fmt.Errorf("connector: failed to generate jti: %w", err)
 	}
@@ -105,7 +103,6 @@ func (c *Connector) GetAccessToken(ctx context.Context, scopes []string) (string
 		return "", fmt.Errorf("connector: failed to sign client assertion: %w", err)
 	}
 
-	// Exchange the assertion for a bearer token.
 	form := url.Values{}
 	form.Set("grant_type", "client_credentials")
 	form.Set("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-bearer")
@@ -242,13 +239,4 @@ func scopeKey(scopes []string) string {
 	copy(sorted, scopes)
 	sort.Strings(sorted)
 	return strings.Join(sorted, " ")
-}
-
-// randomToken generates a URL-safe random string of n bytes.
-func randomToken(n int) (string, error) {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
 }

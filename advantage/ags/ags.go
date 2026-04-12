@@ -67,7 +67,7 @@ func (s *Service) GetLineitems(ctx context.Context) ([]Lineitem, error) {
 	pageURL := s.endpoint.Lineitems
 	for pageURL != "" {
 		resp, err := s.conn.Request(ctx, http.MethodGet, pageURL, nil,
-			[]string{lti.ScopeAGSLineitemReadonly, lti.ScopeAGSLineitem},
+			[]string{lti.ScopeAGSLineitemReadonly},
 			connector.WithAccept(contentTypeLineitems),
 		)
 		if err != nil {
@@ -89,7 +89,7 @@ func (s *Service) GetLineitems(ctx context.Context) ([]Lineitem, error) {
 // GetLineitem returns a single line item by its URL.
 func (s *Service) GetLineitem(ctx context.Context, lineitemURL string) (*Lineitem, error) {
 	resp, err := s.conn.Request(ctx, http.MethodGet, lineitemURL, nil,
-		[]string{lti.ScopeAGSLineitemReadonly, lti.ScopeAGSLineitem},
+		[]string{lti.ScopeAGSLineitemReadonly},
 		connector.WithAccept(contentTypeLineitem),
 	)
 	if err != nil {

@@ -12,6 +12,7 @@ const (
 const (
 	MessageTypeResourceLink      = "LtiResourceLinkRequest"
 	MessageTypeDeepLinking       = "LtiDeepLinkingRequest"
+	MessageTypeDeepLinkingResponse = "LtiDeepLinkingResponse"
 	MessageTypeSubmissionReview  = "LtiSubmissionReviewRequest"
 )
 

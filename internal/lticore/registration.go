@@ -1,4 +1,4 @@
-package lti
+package lticore
 
 import (
 	"crypto/rsa"

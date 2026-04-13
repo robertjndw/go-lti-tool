@@ -1,4 +1,4 @@
-package lti
+package lticore
 
 import "encoding/json"
 
@@ -74,9 +74,9 @@ type ContextClaim struct {
 
 // LISClaim holds Learning Information Services identifiers.
 type LISClaim struct {
-	PersonSourcedID          string `json:"person_sourcedid,omitempty"`
-	CourseOfferingSourcedID  string `json:"course_offering_sourcedid,omitempty"`
-	CourseSectionSourcedID   string `json:"course_section_sourcedid,omitempty"`
+	PersonSourcedID         string `json:"person_sourcedid,omitempty"`
+	CourseOfferingSourcedID string `json:"course_offering_sourcedid,omitempty"`
+	CourseSectionSourcedID  string `json:"course_section_sourcedid,omitempty"`
 }
 
 // LaunchPresentation holds display hints from the platform.
@@ -90,9 +90,9 @@ type LaunchPresentation struct {
 
 // ToolPlatform holds platform product information.
 type ToolPlatform struct {
-	GUID            string `json:"guid,omitempty"`
-	Name            string `json:"name,omitempty"`
-	Version         string `json:"version,omitempty"`
+	GUID              string `json:"guid,omitempty"`
+	Name              string `json:"name,omitempty"`
+	Version           string `json:"version,omitempty"`
 	ProductFamilyCode string `json:"product_family_code,omitempty"`
 }
 

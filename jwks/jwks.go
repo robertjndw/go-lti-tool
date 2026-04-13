@@ -6,12 +6,16 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"math/big"
-	"net/http"
 
-	"github.com/robertjndw/go-lti"
+	"github.com/robertjndw/go-lti/internal/lticore"
 )
+
+// KeySetProvider serves the tool's public JWKS. *jwks.KeySet from the jwks
+// sub-package satisfies this interface.
+type KeySetProvider interface {
+	PublicJWKS() ([]byte, error)
+}
 
 // publicJWK is the JSON representation of a single RSA public key in JWK format.
 type publicJWK struct {
@@ -41,23 +45,9 @@ func NewKeySet(keys map[string]*rsa.PrivateKey) *KeySet {
 }
 
 // FromRegistration creates a KeySet from a single Registration.
-func FromRegistration(reg *lti.Registration) *KeySet {
+func FromRegistration(reg *lticore.Registration) *KeySet {
 	return NewKeySet(map[string]*rsa.PrivateKey{
 		reg.KID: reg.ToolPrivateKey,
-	})
-}
-
-// Handler returns an http.Handler that serves the tool's public JWKS as JSON
-// with Content-Type: application/json.
-func (ks *KeySet) Handler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		data, err := ks.PublicJWKS()
-		if err != nil {
-			http.Error(w, fmt.Sprintf("failed to build JWKS: %v", err), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(data) //nolint:errcheck
 	})
 }
 

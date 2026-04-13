@@ -1,5 +1,5 @@
-// basic-launch demonstrates the minimal LTI 1.3 OIDC launch flow using only
-// the core packages. No LTI Advantage service imports are needed.
+// basic-launch demonstrates the minimal LTI 1.3 OIDC launch flow using the
+// top-level Tool type. No sub-package imports are needed for the launch flow.
 //
 // Run:
 //
@@ -22,26 +22,7 @@ import (
 
 	lti "github.com/robertjndw/go-lti"
 	"github.com/robertjndw/go-lti/jwks"
-	"github.com/robertjndw/go-lti/launch"
-	"github.com/robertjndw/go-lti/login"
 )
-
-// --- In-memory datastore for the example ---
-
-type exampleStore struct {
-	reg *lti.Registration
-}
-
-func (s *exampleStore) FindRegistrationByIssuer(_ context.Context, issuer string) (*lti.Registration, error) {
-	if s.reg.Issuer == issuer {
-		return s.reg, nil
-	}
-	return nil, lti.ErrRegistrationNotFound
-}
-
-func (s *exampleStore) FindDeployment(_ context.Context, _, _ string) (*lti.Deployment, error) {
-	return &lti.Deployment{DeploymentID: "1"}, nil
-}
 
 func main() {
 	// Generate a 2048-bit RSA key pair for the tool.
@@ -52,9 +33,9 @@ func main() {
 	}
 
 	// Build a registration. In production, read these values from config.
-	reg := &lti.Registration{
-		Issuer:         "https://canvas.instructure.com",     // Replace with your LMS issuer
-		ClientID:       "your-client-id",                     // Replace with your client ID
+	reg := lti.Registration{
+		Issuer:         "https://canvas.instructure.com", // Replace with your LMS issuer
+		ClientID:       "your-client-id",                 // Replace with your client ID
 		KeySetURL:      "https://canvas.instructure.com/api/lti/security/jwks",
 		AuthLoginURL:   "https://canvas.instructure.com/api/lti/authorize_redirect",
 		AuthTokenURL:   "https://canvas.instructure.com/login/oauth2/token",
@@ -62,32 +43,31 @@ func main() {
 		KID:            "key-1",
 	}
 
-	store := &exampleStore{reg: reg}
-	nonces := lti.NewMemoryNonceStore()
-	launches := lti.NewMemoryLaunchDataStore()
-	ks := jwks.FromRegistration(reg)
+	store := lti.NewMemoryStore()
+	if err := store.AddRegistration(context.Background(), reg); err != nil {
+		log.Fatalf("failed to add registration: %v", err)
+	}
+	// Accept any deployment ID for this example.
+	if err := store.AddDeployment(context.Background(), reg.Issuer, lti.Deployment{DeploymentID: "1"}); err != nil {
+		log.Fatalf("failed to add deployment: %v", err)
+	}
 
-	loginCfg := login.Config{
-		Datastore:  store,
-		NonceStore: nonces,
-	}
-	launchCfg := launch.Config{
-		Datastore:   store,
-		NonceStore:  nonces,
-		LaunchStore: launches,
-	}
+	tool := lti.NewTool(
+		lti.WithDataStore(store),
+		lti.WithKeySet(jwks.FromRegistration(&reg)),
+	)
 
 	mux := http.NewServeMux()
-	mux.Handle("/oidc/login", login.Handler(loginCfg))
-	mux.Handle("/lti/launch", launch.Handler(launchCfg, http.HandlerFunc(handleLaunch)))
-	mux.Handle("/.well-known/jwks.json", ks.Handler())
+	mux.Handle("/oidc/login", tool.HandleLogin())
+	mux.Handle("/lti/launch", tool.HandleLaunch(http.HandlerFunc(handleLaunch)))
+	mux.Handle("/.well-known/jwks.json", tool.HandleJWKS())
 
 	log.Println("LTI tool listening on :8080")
 	log.Fatal(http.ListenAndServe(":8080", mux))
 }
 
 func handleLaunch(w http.ResponseWriter, r *http.Request) {
-	ld, ok := launch.FromContext(r.Context())
+	ld, ok := lti.FromContext(r.Context())
 	if !ok {
 		http.Error(w, "no launch data in context", http.StatusInternalServerError)
 		return

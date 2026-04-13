@@ -24,8 +24,6 @@ import (
 	lti "github.com/robertjndw/go-lti"
 	"github.com/robertjndw/go-lti/advantage/ags"
 	"github.com/robertjndw/go-lti/jwks"
-	"github.com/robertjndw/go-lti/launch"
-	"github.com/robertjndw/go-lti/login"
 )
 
 type exampleStore struct {
@@ -60,24 +58,22 @@ func main() {
 	}
 
 	store := &exampleStore{reg: reg}
-	nonces := lti.NewMemoryNonceStore()
-	launches := lti.NewMemoryLaunchDataStore()
-	ks := jwks.FromRegistration(reg)
+	tool := lti.NewTool(
+		lti.WithDataStore(store),
+		lti.WithKeySet(jwks.FromRegistration(reg)),
+	)
 
 	mux := http.NewServeMux()
-	mux.Handle("/oidc/login", login.Handler(login.Config{Datastore: store, NonceStore: nonces}))
-	mux.Handle("/lti/launch", launch.Handler(
-		launch.Config{Datastore: store, NonceStore: nonces, LaunchStore: launches},
-		http.HandlerFunc(handleLaunch),
-	))
-	mux.Handle("/.well-known/jwks.json", ks.Handler())
+	mux.Handle("/oidc/login", tool.HandleLogin())
+	mux.Handle("/lti/launch", tool.HandleLaunch(http.HandlerFunc(handleLaunch)))
+	mux.Handle("/.well-known/jwks.json", tool.HandleJWKS())
 
 	log.Println("Grades example listening on :8080")
 	log.Fatal(http.ListenAndServe(":8080", mux))
 }
 
 func handleLaunch(w http.ResponseWriter, r *http.Request) {
-	ld, ok := launch.FromContext(r.Context())
+	ld, ok := lti.FromContext(r.Context())
 	if !ok {
 		http.Error(w, "no launch data", http.StatusInternalServerError)
 		return

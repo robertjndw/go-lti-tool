@@ -12,29 +12,29 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/robertjndw/go-lti"
+	lticore "github.com/robertjndw/go-lti/internal/lticore"
 	"github.com/robertjndw/go-lti/internal/randutil"
 )
 
 // Config holds the dependencies for the OIDC login initiation handler.
 type Config struct {
 	// Datastore resolves the platform Registration from the issuer URL.
-	Datastore lti.Datastore
+	Datastore lticore.Datastore
 
 	// NonceStore is used to store the generated nonce so it can be verified
 	// later during launch validation.
-	NonceStore lti.NonceStore
+	NonceStore lticore.NonceStore
 
-	// CookieHandler reads/writes state cookies. Defaults to lti.DefaultCookieHandler
+	// CookieHandler reads/writes state cookies. Defaults to lticore.DefaultCookieHandler
 	// if nil.
-	CookieHandler lti.CookieHandler
+	CookieHandler lticore.CookieHandler
 }
 
-func (c *Config) cookieHandler() lti.CookieHandler {
+func (c *Config) cookieHandler() lticore.CookieHandler {
 	if c.CookieHandler != nil {
 		return c.CookieHandler
 	}
-	return lti.DefaultCookieHandler{}
+	return lticore.DefaultCookieHandler{}
 }
 
 // Handler returns an http.Handler that processes OIDC login initiation requests

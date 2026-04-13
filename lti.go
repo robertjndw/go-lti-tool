@@ -11,6 +11,7 @@ package lti
 import (
 	"crypto/rsa"
 
+	"github.com/robertjndw/go-lti/dynreg"
 	lticore "github.com/robertjndw/go-lti/internal/lticore"
 )
 
@@ -39,6 +40,8 @@ type (
 	CookieHandler   = lticore.CookieHandler
 
 	DefaultCookieHandler = lticore.DefaultCookieHandler
+
+	ToolMessage = dynreg.ToolMessage
 )
 
 // ParsePrivateKey parses a PEM-encoded RSA private key (PKCS#1 or PKCS#8).

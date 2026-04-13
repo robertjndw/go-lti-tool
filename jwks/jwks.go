@@ -14,6 +14,8 @@ import (
 // KeySetProvider serves the tool's public JWKS. *jwks.KeySet from the jwks
 // sub-package satisfies this interface.
 type KeySetProvider interface {
+	AddKey(kid string, priv *rsa.PrivateKey)
+	GetPrivateKey(kid string) (*rsa.PrivateKey, bool)
 	PublicJWKS() ([]byte, error)
 }
 
@@ -49,6 +51,17 @@ func FromRegistration(reg *lticore.Registration) *KeySet {
 	return NewKeySet(map[string]*rsa.PrivateKey{
 		reg.KID: reg.ToolPrivateKey,
 	})
+}
+
+// AddKey adds a new RSA private key to the KeySet with the given KID.
+func (ks *KeySet) AddKey(kid string, priv *rsa.PrivateKey) {
+	ks.keys[kid] = priv
+}
+
+// GetPrivateKey retrieves the RSA private key for the given KID, if it exists.
+func (ks *KeySet) GetPrivateKey(kid string) (*rsa.PrivateKey, bool) {
+	priv, ok := ks.keys[kid]
+	return priv, ok
 }
 
 // PublicJWKS encodes the tool's public key set as a JSON JWKS document.

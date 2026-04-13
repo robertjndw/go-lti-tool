@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/robertjndw/go-lti/dynreg"
 	lticore "github.com/robertjndw/go-lti/internal/lticore"
 	"github.com/robertjndw/go-lti/jwks"
 	"github.com/robertjndw/go-lti/launch"
@@ -22,7 +23,7 @@ type Tool struct {
 	keySet          jwks.KeySetProvider
 }
 
-// NewTool creates a Tool with in-memory stores and the default cookie handler.
+// NewTool creates a Tool with the given name and domain, pre-configured with in-memory stores and the default cookie handler.
 // Override any component with the With* option functions.
 func NewTool(opts ...ToolOption) *Tool {
 	t := &Tool{
@@ -92,4 +93,90 @@ func (t *Tool) HandleLaunch(next http.Handler) http.Handler {
 		LaunchStore:   t.launchDataStore,
 		CookieHandler: t.cookieHandler,
 	}, next)
+}
+
+// ToolProfile describes the tool to a platform.
+// Required for dynamic registration; optional but encouraged otherwise
+// (it documents the tool's intended URIs in one place).
+type ToolProfile struct {
+	Name           string
+	Domain         string
+	KID            string // Key ID for the tool's signing key, used in the JWT "kid" header and JWKS "kid" field.
+	LoginPath      string
+	JWKSPath       string
+	RedirectPaths  []string
+	TargetLinkPath string
+
+	// Optional placement/scope config
+	Claims           []string
+	Scopes           []string
+	Messages         []ToolMessage
+	CustomParameters map[string]string
+	SecondaryDomains []string
+
+	// Optional metadata (shown in platform admin UIs)
+	Description string
+	LogoURI     string
+	Contacts    []string
+	ClientURI   string
+	TOSURI      string
+	PolicyURI   string
+}
+
+// HandleDynamicRegistration returns an http.Handler for the LTI Dynamic
+// Registration endpoint (spec: https://www.imsglobal.org/spec/lti-dr/v1p0).
+//
+// The platform opens this URL in an iframe or new tab with an
+// openid_configuration query parameter (and an optional registration_token).
+// The handler fetches the platform's OpenID Provider Configuration, POSTs a
+// client registration request, persists the resulting Registration via
+// cfg.RegistrationStore, and responds with an HTML page that sends the
+// org.imsglobal.lti.close postMessage back to the platform.
+//
+// cfg carries the tool-specific information that cannot be derived from the
+// shared Tool state (tool name, domain, JWKS URI, login URI, signing key, etc.).
+// Set cfg.RegistrationStore to persist the incoming registration — typically
+// the same store used with WithDataStore, which implements RegistrationStore
+// when using MemoryStore or a compatible backend.
+func (t *Tool) HandleDynamicRegistration(profile ToolProfile) http.Handler {
+	key, ok := t.keySet.GetPrivateKey(profile.KID) // Check that the key set contains the specified KID at startup.
+	if !ok {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, fmt.Sprintf("key not found for KID: %s", profile.KID), http.StatusBadRequest)
+		})
+	}
+
+	redirectURIs := make([]string, len(profile.RedirectPaths))
+	for i, p := range profile.RedirectPaths {
+		redirectURIs[i] = profile.Domain + p
+	}
+
+	cfg := dynreg.DynRegConfig{
+		ToolName:          profile.Name,
+		ToolDomain:        profile.Domain,
+		RegistrationStore: t.dataStore, // Must be set by caller to persist the registration
+		InitiateLoginUri:  fmt.Sprintf("%s%s", profile.Domain, profile.LoginPath),
+		JWKSUri:           fmt.Sprintf("%s%s", profile.Domain, profile.JWKSPath),
+		TargetLinkUri:     fmt.Sprintf("%s%s", profile.Domain, profile.TargetLinkPath),
+		RedirectURIs:      redirectURIs,
+
+		KID:     profile.KID,
+		ToolKey: key,
+
+		// Optional placement/scope config
+		Claims:           profile.Claims,
+		Scopes:           profile.Scopes,
+		Messages:         profile.Messages,
+		CustomParameters: profile.CustomParameters,
+		SecondaryDomains: profile.SecondaryDomains,
+
+		// Metadata fields
+		Description: profile.Description,
+		LogoURI:     profile.LogoURI,
+		Contacts:    profile.Contacts,
+		ClientURI:   profile.ClientURI,
+		TOSURI:      profile.TOSURI,
+		PolicyURI:   profile.PolicyURI,
+	}
+	return dynreg.Handler(cfg)
 }

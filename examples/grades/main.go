@@ -57,7 +57,8 @@ func main() {
 		KID:            "key-1",
 	}
 
-	store := &exampleStore{reg: reg}
+	store := lti.NewMemoryStore()
+	store.AddRegistration(context.TODO(), *reg)
 	tool := lti.NewTool(
 		lti.WithDataStore(store),
 		lti.WithKeySet(jwks.FromRegistration(reg)),

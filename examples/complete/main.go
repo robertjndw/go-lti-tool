@@ -34,33 +34,6 @@ import (
 	"github.com/robertjndw/go-lti/jwks"
 )
 
-// --- In-memory datastore ---
-
-type store struct {
-	registrations map[string]*lti.Registration
-}
-
-func newStore() *store {
-	return &store{registrations: make(map[string]*lti.Registration)}
-}
-
-func (s *store) AddRegistration(reg *lti.Registration) {
-	s.registrations[reg.Issuer] = reg
-}
-
-func (s *store) FindRegistrationByIssuer(_ context.Context, issuer string) (*lti.Registration, error) {
-	reg, ok := s.registrations[issuer]
-	if !ok {
-		return nil, lti.ErrRegistrationNotFound
-	}
-	return reg, nil
-}
-
-func (s *store) FindDeployment(_ context.Context, _, deploymentID string) (*lti.Deployment, error) {
-	// Accept any deployment ID for this example.
-	return &lti.Deployment{DeploymentID: deploymentID}, nil
-}
-
 // --- App ---
 
 type app struct {
@@ -74,8 +47,8 @@ func main() {
 	}
 
 	reg := &lti.Registration{
-		Issuer:         "https://canvas.instructure.com",   // Replace
-		ClientID:       "your-client-id",                   // Replace
+		Issuer:         "https://canvas.instructure.com", // Replace
+		ClientID:       "your-client-id",                 // Replace
 		KeySetURL:      "https://canvas.instructure.com/api/lti/security/jwks",
 		AuthLoginURL:   "https://canvas.instructure.com/api/lti/authorize_redirect",
 		AuthTokenURL:   "https://canvas.instructure.com/login/oauth2/token",
@@ -83,8 +56,8 @@ func main() {
 		KID:            "tool-key-1",
 	}
 
-	ds := newStore()
-	ds.AddRegistration(reg)
+	ds := lti.NewMemoryStore()
+	ds.AddRegistration(context.TODO(), *reg)
 
 	tool := lti.NewTool(
 		lti.WithDataStore(ds),

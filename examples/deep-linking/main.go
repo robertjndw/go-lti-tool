@@ -13,7 +13,6 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"fmt"
@@ -24,21 +23,6 @@ import (
 	"github.com/robertjndw/go-lti/advantage/deeplink"
 	"github.com/robertjndw/go-lti/jwks"
 )
-
-type exampleStore struct {
-	reg *lti.Registration
-}
-
-func (s *exampleStore) FindRegistrationByIssuer(_ context.Context, issuer string) (*lti.Registration, error) {
-	if s.reg.Issuer == issuer {
-		return s.reg, nil
-	}
-	return nil, lti.ErrRegistrationNotFound
-}
-
-func (s *exampleStore) FindDeployment(_ context.Context, _, _ string) (*lti.Deployment, error) {
-	return &lti.Deployment{DeploymentID: "1"}, nil
-}
 
 var tool *lti.Tool
 
@@ -58,9 +42,8 @@ func main() {
 		KID:            "key-1",
 	}
 
-	store := &exampleStore{reg: reg}
 	tool = lti.NewTool(
-		lti.WithDataStore(store),
+		lti.WithDataStore(lti.NewMemoryStore()),
 		lti.WithKeySet(jwks.FromRegistration(reg)),
 	)
 

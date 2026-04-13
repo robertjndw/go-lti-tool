@@ -26,8 +26,10 @@ func newLoginConfig(t *testing.T) (login.Config, *lti.Registration) {
 		ToolPrivateKey: key,
 		KID:            "key-1",
 	}
+	store := ltitest.SimpleDatastore{}
+	store.AddRegistration(context.TODO(), *reg)
 	return login.Config{
-		Datastore:     &ltitest.SimpleDatastore{Reg: reg},
+		Datastore:     &store,
 		NonceStore:    lti.NewMemoryNonceStore(),
 		CookieHandler: ltitest.NewCookieHandler(),
 	}, reg

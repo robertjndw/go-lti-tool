@@ -58,13 +58,15 @@ func main() {
 	}
 
 	store := &exampleStore{reg: reg}
-	tool := lti.NewTool(lti.WithDataStore(store))
-	ks := jwks.FromRegistration(reg)
+	tool := lti.NewTool(
+		lti.WithDataStore(store),
+		lti.WithKeySet(jwks.FromRegistration(reg)),
+	)
 
 	mux := http.NewServeMux()
 	mux.Handle("/oidc/login", tool.HandleLogin())
 	mux.Handle("/lti/launch", tool.HandleLaunch(http.HandlerFunc(handleLaunch)))
-	mux.Handle("/.well-known/jwks.json", ks.Handler())
+	mux.Handle("/.well-known/jwks.json", tool.HandleJWKS())
 
 	log.Println("Grades example listening on :8080")
 	log.Fatal(http.ListenAndServe(":8080", mux))

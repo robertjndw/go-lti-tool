@@ -1,4 +1,4 @@
-package lticore
+package lti
 
 import (
 	"context"

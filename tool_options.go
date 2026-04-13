@@ -1,5 +1,7 @@
 package lti
 
+import "github.com/robertjndw/go-lti/jwks"
+
 type ToolOptions func(*Tool)
 
 // WithDataStore sets the Datastore for the Tool.
@@ -27,5 +29,13 @@ func WithLaunchDataStore(lds LaunchDataStore) ToolOptions {
 func WithCookieHandler(ch CookieHandler) ToolOptions {
 	return func(t *Tool) {
 		t.cookieHandler = ch
+	}
+}
+
+// WithKeySet sets the KeySetProvider used by HandleJWKS.
+// Pass a *jwks.KeySet (from the jwks sub-package) here.
+func WithKeySet(ks jwks.KeySetProvider) ToolOptions {
+	return func(t *Tool) {
+		t.keySet = ks
 	}
 }

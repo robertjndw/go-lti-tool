@@ -2,9 +2,11 @@ package lti
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	lticore "github.com/robertjndw/go-lti/internal/lticore"
+	"github.com/robertjndw/go-lti/jwks"
 	"github.com/robertjndw/go-lti/launch"
 	"github.com/robertjndw/go-lti/login"
 )
@@ -17,16 +19,18 @@ type Tool struct {
 	nonceStore      lticore.NonceStore
 	launchDataStore lticore.LaunchDataStore
 	cookieHandler   lticore.CookieHandler
+	keySet          jwks.KeySetProvider
 }
 
 // NewTool creates a Tool with in-memory stores and the default cookie handler.
 // Override any component with the With* option functions.
 func NewTool(opts ...ToolOptions) *Tool {
 	t := &Tool{
-		dataStore:       lticore.NewMemoryStore(),
-		nonceStore:      lticore.NewMemoryNonceStore(),
-		launchDataStore: lticore.NewMemoryLaunchDataStore(),
-		cookieHandler:   lticore.DefaultCookieHandler{},
+		dataStore:       NewMemoryStore(),
+		nonceStore:      NewMemoryNonceStore(),
+		launchDataStore: NewMemoryLaunchDataStore(),
+		cookieHandler:   DefaultCookieHandler{},
+		keySet:          nil, // Must be set with WithKeySet to serve JWKS.
 	}
 	for _, opt := range opts {
 		opt(t)
@@ -57,14 +61,33 @@ func (t *Tool) HandleLogin() http.Handler {
 	})
 }
 
+// HandleJWKS returns an http.Handler that serves the tool's public JWKS.
+// Configure the key set with WithKeySet. If no key set was configured, responds with 501 Not Implemented.
+func (t *Tool) HandleJWKS() http.Handler {
+	if t.keySet == nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "JWKS not configured: use WithKeySet", http.StatusNotImplemented)
+		})
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, err := t.keySet.PublicJWKS()
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to build JWKS: %v", err), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data) //nolint:errcheck
+	})
+}
+
 // HandleLaunch returns an http.Handler middleware that validates an LTI launch
 // POST, caches the resulting LaunchData, and makes it available via FromContext
 // before calling next.
 func (t *Tool) HandleLaunch(next http.Handler) http.Handler {
 	return launch.Handler(launch.Config{
-		Datastore:   t.dataStore,
-		NonceStore:  t.nonceStore,
-		LaunchStore: t.launchDataStore,
+		Datastore:     t.dataStore,
+		NonceStore:    t.nonceStore,
+		LaunchStore:   t.launchDataStore,
 		CookieHandler: t.cookieHandler,
 	}, next)
 }

@@ -13,7 +13,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	lti "github.com/robertjndw/go-lti"
-	"github.com/robertjndw/go-lti/connector"
+	"github.com/robertjndw/go-lti/internal/connector"
 	"github.com/robertjndw/go-lti/internal/ltitest"
 )
 

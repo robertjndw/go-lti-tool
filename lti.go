@@ -38,17 +38,8 @@ type (
 	LaunchDataStore = lticore.LaunchDataStore
 	CookieHandler   = lticore.CookieHandler
 
-	DefaultCookieHandler  = lticore.DefaultCookieHandler
-	MemoryStore           = lticore.MemoryStore
-	MemoryNonceStore      = lticore.MemoryNonceStore
-	MemoryLaunchDataStore = lticore.MemoryLaunchDataStore
+	DefaultCookieHandler = lticore.DefaultCookieHandler
 )
-
-// ── Constructor re-exports ────────────────────────────────────────────────────
-
-func NewMemoryStore() *MemoryStore                   { return lticore.NewMemoryStore() }
-func NewMemoryNonceStore() *MemoryNonceStore         { return lticore.NewMemoryNonceStore() }
-func NewMemoryLaunchDataStore() *MemoryLaunchDataStore { return lticore.NewMemoryLaunchDataStore() }
 
 // ParsePrivateKey parses a PEM-encoded RSA private key (PKCS#1 or PKCS#8).
 func ParsePrivateKey(pemBytes []byte) (*rsa.PrivateKey, error) {

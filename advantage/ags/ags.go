@@ -26,7 +26,7 @@ import (
 	"strings"
 
 	"github.com/robertjndw/go-lti"
-	"github.com/robertjndw/go-lti/connector"
+	"github.com/robertjndw/go-lti/internal/connector"
 )
 
 const (

@@ -86,14 +86,16 @@ func main() {
 	ds := newStore()
 	ds.AddRegistration(reg)
 
-	tool := lti.NewTool(lti.WithDataStore(ds))
+	tool := lti.NewTool(
+		lti.WithDataStore(ds),
+		lti.WithKeySet(jwks.FromRegistration(reg)),
+	)
 	a := &app{tool: tool}
-	ks := jwks.FromRegistration(reg)
 
 	mux := http.NewServeMux()
 	mux.Handle("/oidc/login", tool.HandleLogin())
 	mux.Handle("/lti/launch", tool.HandleLaunch(http.HandlerFunc(a.handleLaunch)))
-	mux.Handle("/.well-known/jwks.json", ks.Handler())
+	mux.Handle("/.well-known/jwks.json", tool.HandleJWKS())
 	mux.HandleFunc("/content-picker", a.handleContentPicker)
 
 	log.Println("Complete LTI tool listening on :8080")

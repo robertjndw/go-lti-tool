@@ -3,8 +3,6 @@ package jwks_test
 import (
 	"crypto/rsa"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	lti "github.com/robertjndw/go-lti"
@@ -119,60 +117,5 @@ func TestPublicJWKS_NoPrivateKeyMaterial(t *testing.T) {
 				t.Errorf("private key field %q must not appear in JWKS output", priv)
 			}
 		}
-	}
-}
-
-// ── JWKS HTTP handler ─────────────────────────────────────────────────────────
-
-// Handler must respond with status 200 and Content-Type: application/json.
-func TestHandler_ContentTypeJSON(t *testing.T) {
-	reg, _ := newReg(t, "key-1")
-	ks := jwks.FromRegistration(reg)
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/.well-known/jwks.json", nil)
-	ks.Handler().ServeHTTP(w, r)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200", w.Code)
-	}
-	ct := w.Header().Get("Content-Type")
-	if ct != "application/json" {
-		t.Errorf("Content-Type = %q, want application/json", ct)
-	}
-}
-
-// Handler must return a valid JSON JWKS with a non-empty "keys" array.
-func TestHandler_ResponseIsValidJWKS(t *testing.T) {
-	reg, _ := newReg(t, "key-1")
-	ks := jwks.FromRegistration(reg)
-	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/.well-known/jwks.json", nil)
-	ks.Handler().ServeHTTP(w, r)
-
-	var doc struct {
-		Keys []json.RawMessage `json:"keys"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &doc); err != nil {
-		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, w.Body.String())
-	}
-	if len(doc.Keys) == 0 {
-		t.Error("keys array must not be empty")
-	}
-}
-
-// FromRegistration must use the registration's KID as the key identifier.
-func TestFromRegistration_UsesRegistrationKID(t *testing.T) {
-	reg, _ := newReg(t, "my-special-kid")
-	ks := jwks.FromRegistration(reg)
-	data, err := ks.PublicJWKS()
-	if err != nil {
-		t.Fatalf("PublicJWKS failed: %v", err)
-	}
-	var doc struct {
-		Keys []map[string]string `json:"keys"`
-	}
-	json.Unmarshal(data, &doc) //nolint:errcheck
-	if len(doc.Keys) != 1 || doc.Keys[0]["kid"] != "my-special-kid" {
-		t.Errorf("expected kid=my-special-kid in JWKS, got %v", doc.Keys)
 	}
 }

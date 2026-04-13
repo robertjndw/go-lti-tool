@@ -23,8 +23,6 @@ import (
 	lti "github.com/robertjndw/go-lti"
 	"github.com/robertjndw/go-lti/advantage/deeplink"
 	"github.com/robertjndw/go-lti/jwks"
-	"github.com/robertjndw/go-lti/launch"
-	"github.com/robertjndw/go-lti/login"
 )
 
 type exampleStore struct {
@@ -42,7 +40,7 @@ func (s *exampleStore) FindDeployment(_ context.Context, _, _ string) (*lti.Depl
 	return &lti.Deployment{DeploymentID: "1"}, nil
 }
 
-var globalStore *lti.MemoryLaunchDataStore
+var tool *lti.Tool
 
 func main() {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -61,16 +59,12 @@ func main() {
 	}
 
 	store := &exampleStore{reg: reg}
-	nonces := lti.NewMemoryNonceStore()
-	globalStore = lti.NewMemoryLaunchDataStore()
+	tool = lti.NewTool(lti.WithDataStore(store))
 	ks := jwks.FromRegistration(reg)
 
 	mux := http.NewServeMux()
-	mux.Handle("/oidc/login", login.Handler(login.Config{Datastore: store, NonceStore: nonces}))
-	mux.Handle("/lti/launch", launch.Handler(
-		launch.Config{Datastore: store, NonceStore: nonces, LaunchStore: globalStore},
-		http.HandlerFunc(handleDeepLink),
-	))
+	mux.Handle("/oidc/login", tool.HandleLogin())
+	mux.Handle("/lti/launch", tool.HandleLaunch(http.HandlerFunc(handleDeepLink)))
 	// Content picker: user selects content and we submit the deep link response.
 	mux.HandleFunc("/content-picker", handleContentPicker)
 	mux.Handle("/.well-known/jwks.json", ks.Handler())
@@ -81,7 +75,7 @@ func main() {
 
 // handleDeepLink renders a simple content picker for deep linking launches.
 func handleDeepLink(w http.ResponseWriter, r *http.Request) {
-	ld, ok := launch.FromContext(r.Context())
+	ld, ok := lti.FromContext(r.Context())
 	if !ok {
 		http.Error(w, "no launch data", http.StatusInternalServerError)
 		return
@@ -119,7 +113,7 @@ func handleContentPicker(w http.ResponseWriter, r *http.Request) {
 	resource := r.FormValue("resource")
 
 	// Restore the launch data from cache.
-	ld, err := globalStore.GetLaunchData(r.Context(), launchID)
+	ld, err := tool.GetLaunchData(r.Context(), launchID)
 	if err != nil {
 		http.Error(w, "launch not found or expired", http.StatusBadRequest)
 		return

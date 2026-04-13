@@ -32,8 +32,6 @@ import (
 	"github.com/robertjndw/go-lti/advantage/deeplink"
 	"github.com/robertjndw/go-lti/advantage/nrps"
 	"github.com/robertjndw/go-lti/jwks"
-	"github.com/robertjndw/go-lti/launch"
-	"github.com/robertjndw/go-lti/login"
 )
 
 // --- In-memory datastore ---
@@ -66,7 +64,7 @@ func (s *store) FindDeployment(_ context.Context, _, deploymentID string) (*lti.
 // --- App ---
 
 type app struct {
-	launchStore *lti.MemoryLaunchDataStore
+	tool *lti.Tool
 }
 
 func main() {
@@ -88,25 +86,13 @@ func main() {
 	ds := newStore()
 	ds.AddRegistration(reg)
 
-	nonces := lti.NewMemoryNonceStore()
-	launches := lti.NewMemoryLaunchDataStore()
+	tool := lti.NewTool(lti.WithDataStore(ds))
+	a := &app{tool: tool}
 	ks := jwks.FromRegistration(reg)
 
-	a := &app{launchStore: launches}
-
 	mux := http.NewServeMux()
-	mux.Handle("/oidc/login", login.Handler(login.Config{
-		Datastore:  ds,
-		NonceStore: nonces,
-	}))
-	mux.Handle("/lti/launch", launch.Handler(
-		launch.Config{
-			Datastore:   ds,
-			NonceStore:  nonces,
-			LaunchStore: launches,
-		},
-		http.HandlerFunc(a.handleLaunch),
-	))
+	mux.Handle("/oidc/login", tool.HandleLogin())
+	mux.Handle("/lti/launch", tool.HandleLaunch(http.HandlerFunc(a.handleLaunch)))
 	mux.Handle("/.well-known/jwks.json", ks.Handler())
 	mux.HandleFunc("/content-picker", a.handleContentPicker)
 
@@ -116,7 +102,7 @@ func main() {
 
 // handleLaunch dispatches to the appropriate handler based on message type.
 func (a *app) handleLaunch(w http.ResponseWriter, r *http.Request) {
-	ld, ok := launch.FromContext(r.Context())
+	ld, ok := lti.FromContext(r.Context())
 	if !ok {
 		http.Error(w, "no launch data", http.StatusInternalServerError)
 		return
@@ -139,13 +125,13 @@ func (a *app) handleLaunch(w http.ResponseWriter, r *http.Request) {
 func (a *app) handleResourceLaunch(w http.ResponseWriter, r *http.Request, ld *lti.LaunchData) {
 	ctx := r.Context()
 	resp := map[string]any{
-		"launch_id":    ld.LaunchID,
-		"user":         ld.Claims.Subject,
-		"name":         ld.Claims.Name,
-		"email":        ld.Claims.Email,
-		"roles":        ld.Claims.Roles,
-		"has_ags":      ld.HasAGS(),
-		"has_nrps":     ld.HasNRPS(),
+		"launch_id": ld.LaunchID,
+		"user":      ld.Claims.Subject,
+		"name":      ld.Claims.Name,
+		"email":     ld.Claims.Email,
+		"roles":     ld.Claims.Roles,
+		"has_ags":   ld.HasAGS(),
+		"has_nrps":  ld.HasNRPS(),
 	}
 
 	// Fetch the roster if NRPS is available.
@@ -219,7 +205,7 @@ func (a *app) handleContentPicker(w http.ResponseWriter, r *http.Request) {
 	launchID := r.URL.Query().Get("launch_id")
 	resource := r.URL.Query().Get("resource")
 
-	ld, err := a.launchStore.GetLaunchData(r.Context(), launchID)
+	ld, err := a.tool.GetLaunchData(r.Context(), launchID)
 	if err != nil {
 		http.Error(w, "launch not found or expired", http.StatusBadRequest)
 		return

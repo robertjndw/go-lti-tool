@@ -16,7 +16,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/lestrrat-go/jwx/v3/jwk"
-	"github.com/robertjndw/go-lti"
+	lticore "github.com/robertjndw/go-lti/internal/lticore"
 	"github.com/robertjndw/go-lti/internal/randutil"
 )
 
@@ -26,16 +26,16 @@ type contextKey struct{}
 // Config holds the dependencies for launch validation.
 type Config struct {
 	// Datastore resolves registrations and deployments.
-	Datastore lti.Datastore
+	Datastore lticore.Datastore
 
 	// NonceStore verifies (and invalidates) nonces.
-	NonceStore lti.NonceStore
+	NonceStore lticore.NonceStore
 
 	// LaunchStore caches validated launch data.
-	LaunchStore lti.LaunchDataStore
+	LaunchStore lticore.LaunchDataStore
 
-	// CookieHandler reads/writes cookies. Defaults to lti.DefaultCookieHandler.
-	CookieHandler lti.CookieHandler
+	// CookieHandler reads/writes cookies. Defaults to lticore.DefaultCookieHandler.
+	CookieHandler lticore.CookieHandler
 
 	// Validators is the set of MessageValidators to run. Defaults to DefaultValidators().
 	Validators []MessageValidator
@@ -47,11 +47,11 @@ type Config struct {
 	SkipNonceCheck bool
 }
 
-func (c *Config) cookieHandler() lti.CookieHandler {
+func (c *Config) cookieHandler() lticore.CookieHandler {
 	if c.CookieHandler != nil {
 		return c.CookieHandler
 	}
-	return lti.DefaultCookieHandler{}
+	return lticore.DefaultCookieHandler{}
 }
 
 func (c *Config) validators() []MessageValidator {
@@ -78,20 +78,20 @@ func Handler(cfg Config, next http.Handler) http.Handler {
 
 // FromContext extracts the LaunchData stored by Handler from a request context.
 // Returns false if no launch data is present (e.g. the middleware was not applied).
-func FromContext(ctx context.Context) (*lti.LaunchData, bool) {
-	ld, ok := ctx.Value(contextKey{}).(*lti.LaunchData)
+func FromContext(ctx context.Context) (*lticore.LaunchData, bool) {
+	ld, ok := ctx.Value(contextKey{}).(*lticore.LaunchData)
 	return ld, ok
 }
 
 // FromCache reconstructs a LaunchData from the launch store using a launch ID.
 // Useful for restoring launch context in subsequent requests (e.g. AJAX calls).
-func FromCache(ctx context.Context, cfg Config, launchID string) (*lti.LaunchData, error) {
+func FromCache(ctx context.Context, cfg Config, launchID string) (*lticore.LaunchData, error) {
 	return cfg.LaunchStore.GetLaunchData(ctx, launchID)
 }
 
 // ValidateLaunch processes a launch POST request and returns the validated LaunchData.
 // Use this when you prefer not to use the middleware pattern.
-func ValidateLaunch(ctx context.Context, cfg Config, r *http.Request) (*lti.LaunchData, error) {
+func ValidateLaunch(ctx context.Context, cfg Config, r *http.Request) (*lticore.LaunchData, error) {
 	if err := r.ParseForm(); err != nil {
 		return nil, fmt.Errorf("lti/launch: failed to parse form: %w", err)
 	}
@@ -138,7 +138,7 @@ func ValidateLaunch(ctx context.Context, cfg Config, r *http.Request) (*lti.Laun
 			return nil, fmt.Errorf("lti/launch: nonce check failed: %w", err)
 		}
 		if !ok {
-			return nil, lti.ErrInvalidNonce
+			return nil, lticore.ErrInvalidNonce
 		}
 	}
 
@@ -158,7 +158,7 @@ func ValidateLaunch(ctx context.Context, cfg Config, r *http.Request) (*lti.Laun
 	if err != nil {
 		return nil, fmt.Errorf("lti/launch: failed to generate launch ID: %w", err)
 	}
-	ld := &lti.LaunchData{
+	ld := &lticore.LaunchData{
 		LaunchID:     launchID,
 		Claims:       claims,
 		Registration: reg,
@@ -176,17 +176,17 @@ func ValidateLaunch(ctx context.Context, cfg Config, r *http.Request) (*lti.Laun
 }
 
 // validateState checks that the state parameter matches the state cookie.
-func validateState(r *http.Request, state string, ch lti.CookieHandler) error {
+func validateState(r *http.Request, state string, ch lticore.CookieHandler) error {
 	if state == "" {
-		return lti.ErrInvalidState
+		return lticore.ErrInvalidState
 	}
 	cookieName := "lti1p3_" + state
 	cookieValue, err := ch.GetCookie(r, cookieName)
 	if err != nil {
-		return fmt.Errorf("lti/launch: %w: %v", lti.ErrInvalidState, err)
+		return fmt.Errorf("lti/launch: %w: %v", lticore.ErrInvalidState, err)
 	}
 	if cookieValue != state {
-		return lti.ErrInvalidState
+		return lticore.ErrInvalidState
 	}
 	return nil
 }
@@ -199,30 +199,30 @@ type rawJWTHeader struct {
 
 // decodeJWTUnverified decodes the header and payload of a JWT without verifying
 // the signature. Used to extract the issuer and KID before fetching the right key.
-func decodeJWTUnverified(tokenStr string) (*lti.LTIClaims, string, error) {
+func decodeJWTUnverified(tokenStr string) (*lticore.LTIClaims, string, error) {
 	parts := strings.Split(tokenStr, ".")
 	if len(parts) != 3 {
-		return nil, "", lti.ErrInvalidJWT
+		return nil, "", lticore.ErrInvalidJWT
 	}
 
 	// Decode header.
 	headerJSON, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
-		return nil, "", fmt.Errorf("%w: bad header encoding", lti.ErrInvalidJWT)
+		return nil, "", fmt.Errorf("%w: bad header encoding", lticore.ErrInvalidJWT)
 	}
 	var header rawJWTHeader
 	if err := json.Unmarshal(headerJSON, &header); err != nil {
-		return nil, "", fmt.Errorf("%w: bad header JSON", lti.ErrInvalidJWT)
+		return nil, "", fmt.Errorf("%w: bad header JSON", lticore.ErrInvalidJWT)
 	}
 
 	// Decode payload.
 	payloadJSON, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return nil, "", fmt.Errorf("%w: bad payload encoding", lti.ErrInvalidJWT)
+		return nil, "", fmt.Errorf("%w: bad payload encoding", lticore.ErrInvalidJWT)
 	}
-	var claims lti.LTIClaims
+	var claims lticore.LTIClaims
 	if err := json.Unmarshal(payloadJSON, &claims); err != nil {
-		return nil, "", fmt.Errorf("%w: bad payload JSON: %v", lti.ErrInvalidJWT, err)
+		return nil, "", fmt.Errorf("%w: bad payload JSON: %v", lticore.ErrInvalidJWT, err)
 	}
 
 	return &claims, header.KID, nil
@@ -230,7 +230,7 @@ func decodeJWTUnverified(tokenStr string) (*lti.LTIClaims, string, error) {
 
 // verifyJWT fetches the platform's JWKS and verifies the JWT signature, returning
 // the validated claims.
-func verifyJWT(ctx context.Context, tokenStr string, reg *lti.Registration, kid string, fetchOpts []jwk.FetchOption) (*lti.LTIClaims, error) {
+func verifyJWT(ctx context.Context, tokenStr string, reg *lticore.Registration, kid string, fetchOpts []jwk.FetchOption) (*lticore.LTIClaims, error) {
 	// Fetch the platform's JWKS.
 	keySet, err := jwk.Fetch(ctx, reg.KeySetURL, fetchOpts...)
 	if err != nil {
@@ -242,17 +242,17 @@ func verifyJWT(ctx context.Context, tokenStr string, reg *lti.Registration, kid 
 	if kid != "" {
 		k, found := keySet.LookupKeyID(kid)
 		if !found {
-			return nil, fmt.Errorf("%w: no key with kid=%q in platform JWKS", lti.ErrInvalidSignature, kid)
+			return nil, fmt.Errorf("%w: no key with kid=%q in platform JWKS", lticore.ErrInvalidSignature, kid)
 		}
 		matchKey = k
 	} else {
 		// No KID in JWT header — use the first key in the set.
 		if keySet.Len() == 0 {
-			return nil, fmt.Errorf("%w: platform JWKS is empty", lti.ErrInvalidSignature)
+			return nil, fmt.Errorf("%w: platform JWKS is empty", lticore.ErrInvalidSignature)
 		}
 		k, ok := keySet.Key(0)
 		if !ok {
-			return nil, fmt.Errorf("%w: failed to access key at index 0", lti.ErrInvalidSignature)
+			return nil, fmt.Errorf("%w: failed to access key at index 0", lticore.ErrInvalidSignature)
 		}
 		matchKey = k
 	}
@@ -260,7 +260,7 @@ func verifyJWT(ctx context.Context, tokenStr string, reg *lti.Registration, kid 
 	// Extract the raw RSA public key.
 	var pubKey rsa.PublicKey
 	if err := jwk.Export(matchKey, &pubKey); err != nil {
-		return nil, fmt.Errorf("%w: failed to export RSA public key: %v", lti.ErrInvalidSignature, err)
+		return nil, fmt.Errorf("%w: failed to export RSA public key: %v", lticore.ErrInvalidSignature, err)
 	}
 
 	// Verify the JWT signature using golang-jwt.
@@ -275,7 +275,7 @@ func verifyJWT(ctx context.Context, tokenStr string, reg *lti.Registration, kid 
 		return &pubKey, nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", lti.ErrInvalidSignature, err)
+		return nil, fmt.Errorf("%w: %v", lticore.ErrInvalidSignature, err)
 	}
 
 	// Re-marshal the verified payload into our typed claims struct.
@@ -283,7 +283,7 @@ func verifyJWT(ctx context.Context, tokenStr string, reg *lti.Registration, kid 
 	if err != nil {
 		return nil, fmt.Errorf("failed to re-marshal claims: %w", err)
 	}
-	var claims lti.LTIClaims
+	var claims lticore.LTIClaims
 	if err := json.Unmarshal(rawPayload, &claims); err != nil {
 		return nil, fmt.Errorf("failed to parse verified claims: %w", err)
 	}
@@ -291,44 +291,44 @@ func verifyJWT(ctx context.Context, tokenStr string, reg *lti.Registration, kid 
 }
 
 // validateOIDCClaims checks the standard OIDC claims against the registration.
-func validateOIDCClaims(claims *lti.LTIClaims, reg *lti.Registration) error {
+func validateOIDCClaims(claims *lticore.LTIClaims, reg *lticore.Registration) error {
 	if claims.Issuer != reg.Issuer {
-		return fmt.Errorf("%w: iss %q does not match registration issuer %q", lti.ErrInvalidClaims, claims.Issuer, reg.Issuer)
+		return fmt.Errorf("%w: iss %q does not match registration issuer %q", lticore.ErrInvalidClaims, claims.Issuer, reg.Issuer)
 	}
 	if !claims.Audience.Contains(reg.ClientID) {
-		return fmt.Errorf("%w: aud does not contain client_id %q", lti.ErrInvalidClaims, reg.ClientID)
+		return fmt.Errorf("%w: aud does not contain client_id %q", lticore.ErrInvalidClaims, reg.ClientID)
 	}
 	if claims.IssuedAt == 0 {
-		return fmt.Errorf("%w: iat claim is missing", lti.ErrMissingClaim)
+		return fmt.Errorf("%w: iat claim is missing", lticore.ErrMissingClaim)
 	}
 	if claims.Nonce == "" {
-		return fmt.Errorf("%w: nonce is missing", lti.ErrMissingClaim)
+		return fmt.Errorf("%w: nonce is missing", lticore.ErrMissingClaim)
 	}
 	if claims.DeploymentID == "" {
-		return fmt.Errorf("%w: deployment_id is missing", lti.ErrMissingClaim)
+		return fmt.Errorf("%w: deployment_id is missing", lticore.ErrMissingClaim)
 	}
 	if claims.MessageType == "" {
-		return fmt.Errorf("%w: message_type is missing", lti.ErrMissingClaim)
+		return fmt.Errorf("%w: message_type is missing", lticore.ErrMissingClaim)
 	}
 	if claims.Version == "" {
-		return fmt.Errorf("%w: version is missing", lti.ErrMissingClaim)
+		return fmt.Errorf("%w: version is missing", lticore.ErrMissingClaim)
 	}
 	// Spec §4.3.2: target_link_uri is required and must be read from the signed JWT,
 	// never from the unsigned login initiation request.
 	if claims.TargetLinkURI == "" {
-		return fmt.Errorf("%w: target_link_uri is missing", lti.ErrMissingClaim)
+		return fmt.Errorf("%w: target_link_uri is missing", lticore.ErrMissingClaim)
 	}
 	return nil
 }
 
 // runMessageValidators finds the appropriate validator for the message type and runs it.
-func runMessageValidators(validators []MessageValidator, claims *lti.LTIClaims) error {
+func runMessageValidators(validators []MessageValidator, claims *lticore.LTIClaims) error {
 	for _, v := range validators {
 		if v.CanValidate(claims) {
 			return v.Validate(claims)
 		}
 	}
-	return fmt.Errorf("%w: no validator found for message_type %q", lti.ErrInvalidClaims, claims.MessageType)
+	return fmt.Errorf("%w: no validator found for message_type %q", lticore.ErrInvalidClaims, claims.MessageType)
 }
 
 func generateLaunchID() (string, error) {

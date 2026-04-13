@@ -6,20 +6,23 @@ import (
 	"time"
 )
 
-// --- In-memory datastore for the example ---
+type deploymentKey struct{ issuer, deploymentID string }
+
+// MemoryStore is an in-memory Datastore suitable for development and testing.
+// NOT suitable for production: data is lost on restart and not shared across instances.
 type MemoryStore struct {
 	muReg         sync.RWMutex
 	registrations map[string]Registration
 
 	muDeployment sync.RWMutex
-	deployments  map[string]Deployment
+	deployments  map[deploymentKey]Deployment
 }
 
-// NewMemoryNonceStore creates a MemoryNonceStore with a 10-minute nonce TTL.
+// NewMemoryStore creates an empty MemoryStore.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		registrations: make(map[string]Registration),
-		deployments:   make(map[string]Deployment),
+		deployments:   make(map[deploymentKey]Deployment),
 	}
 }
 
@@ -43,14 +46,14 @@ func (s *MemoryStore) FindRegistrationByIssuer(_ context.Context, issuer string)
 func (s *MemoryStore) AddDeployment(_ context.Context, issuer string, dep Deployment) error {
 	s.muDeployment.Lock()
 	defer s.muDeployment.Unlock()
-	s.deployments[issuer+dep.DeploymentID] = dep
+	s.deployments[deploymentKey{issuer, dep.DeploymentID}] = dep
 	return nil
 }
 
 func (s *MemoryStore) FindDeployment(_ context.Context, issuer, deploymentID string) (*Deployment, error) {
 	s.muDeployment.RLock()
 	defer s.muDeployment.RUnlock()
-	dep, ok := s.deployments[issuer+deploymentID]
+	dep, ok := s.deployments[deploymentKey{issuer, deploymentID}]
 	if !ok {
 		return nil, ErrDeploymentNotFound
 	}

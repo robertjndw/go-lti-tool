@@ -24,7 +24,7 @@ type Tool struct {
 
 // NewTool creates a Tool with in-memory stores and the default cookie handler.
 // Override any component with the With* option functions.
-func NewTool(opts ...ToolOptions) *Tool {
+func NewTool(opts ...ToolOption) *Tool {
 	t := &Tool{
 		dataStore:       NewMemoryStore(),
 		nonceStore:      NewMemoryNonceStore(),
@@ -63,18 +63,20 @@ func (t *Tool) HandleLogin() http.Handler {
 
 // HandleJWKS returns an http.Handler that serves the tool's public JWKS.
 // Configure the key set with WithKeySet. If no key set was configured, responds with 501 Not Implemented.
+// The JWKS document is serialized once at handler construction time, not on every request.
 func (t *Tool) HandleJWKS() http.Handler {
 	if t.keySet == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "JWKS not configured: use WithKeySet", http.StatusNotImplemented)
 		})
 	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		data, err := t.keySet.PublicJWKS()
-		if err != nil {
+	data, err := t.keySet.PublicJWKS()
+	if err != nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, fmt.Sprintf("failed to build JWKS: %v", err), http.StatusInternalServerError)
-			return
-		}
+		})
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(data) //nolint:errcheck
 	})

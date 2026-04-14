@@ -16,7 +16,7 @@ func TestHasAGS(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ld := &LaunchData{Claims: &LTIClaims{AGS: tt.ags}}
+			ld := &Launch{Claims: &LTIClaims{AGS: tt.ags}}
 			if got := ld.HasAGS(); got != tt.want {
 				t.Errorf("HasAGS() = %v, want %v", got, tt.want)
 			}
@@ -36,7 +36,7 @@ func TestHasNRPS(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ld := &LaunchData{Claims: &LTIClaims{NRPS: tt.nrps}}
+			ld := &Launch{Claims: &LTIClaims{NRPS: tt.nrps}}
 			if got := ld.HasNRPS(); got != tt.want {
 				t.Errorf("HasNRPS() = %v, want %v", got, tt.want)
 			}
@@ -56,7 +56,7 @@ func TestHasDeepLinking(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ld := &LaunchData{Claims: &LTIClaims{DeepLinkingSettings: tt.settings}}
+			ld := &Launch{Claims: &LTIClaims{DeepLinkingSettings: tt.settings}}
 			if got := ld.HasDeepLinking(); got != tt.want {
 				t.Errorf("HasDeepLinking() = %v, want %v", got, tt.want)
 			}
@@ -76,7 +76,7 @@ func TestIsResourceLaunch(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ld := &LaunchData{Claims: &LTIClaims{MessageType: tt.messageType}}
+			ld := &Launch{Claims: &LTIClaims{MessageType: tt.messageType}}
 			if got := ld.IsResourceLaunch(); got != tt.want {
 				t.Errorf("IsResourceLaunch() = %v, want %v", got, tt.want)
 			}
@@ -96,7 +96,7 @@ func TestIsDeepLinkLaunch(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ld := &LaunchData{Claims: &LTIClaims{MessageType: tt.messageType}}
+			ld := &Launch{Claims: &LTIClaims{MessageType: tt.messageType}}
 			if got := ld.IsDeepLinkLaunch(); got != tt.want {
 				t.Errorf("IsDeepLinkLaunch() = %v, want %v", got, tt.want)
 			}

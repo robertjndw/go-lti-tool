@@ -65,18 +65,18 @@ func (s *MemoryStore) FindDeployment(_ context.Context, issuer, deploymentID str
 // shared across instances.
 type MemoryLaunchDataStore struct {
 	mu      sync.RWMutex
-	entries map[string]*LaunchData
+	entries map[string]*Launch
 }
 
 // NewMemoryLaunchDataStore creates an empty MemoryLaunchDataStore.
 func NewMemoryLaunchDataStore() *MemoryLaunchDataStore {
 	return &MemoryLaunchDataStore{
-		entries: make(map[string]*LaunchData),
+		entries: make(map[string]*Launch),
 	}
 }
 
 // CacheLaunchData stores the launch data under the given launch ID.
-func (s *MemoryLaunchDataStore) CacheLaunchData(_ context.Context, launchID string, data *LaunchData) error {
+func (s *MemoryLaunchDataStore) CacheLaunchData(_ context.Context, launchID string, data *Launch) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.entries[launchID] = data
@@ -84,7 +84,7 @@ func (s *MemoryLaunchDataStore) CacheLaunchData(_ context.Context, launchID stri
 }
 
 // GetLaunchData retrieves launch data by launch ID.
-func (s *MemoryLaunchDataStore) GetLaunchData(_ context.Context, launchID string) (*LaunchData, error) {
+func (s *MemoryLaunchDataStore) GetLaunchData(_ context.Context, launchID string) (*Launch, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	data, ok := s.entries[launchID]

@@ -39,15 +39,15 @@ func NewTool(opts ...ToolOption) *Tool {
 	return t
 }
 
-// FromContext extracts the LaunchData stored by HandleLaunch from a request context.
+// LaunchFromContext extracts the LaunchData stored by HandleLaunch from a request context.
 // Returns false if the middleware was not applied or validation failed.
-func FromContext(ctx context.Context) (*LaunchData, bool) {
+func LaunchFromContext(ctx context.Context) (*Launch, bool) {
 	return launch.FromContext(ctx)
 }
 
-// GetLaunchData retrieves previously cached launch data by launch ID.
+// GetLaunch retrieves previously cached launch data by launch ID.
 // Useful for restoring launch context in subsequent requests (e.g. after deep-link content selection).
-func (t *Tool) GetLaunchData(ctx context.Context, launchID string) (*LaunchData, error) {
+func (t *Tool) GetLaunch(ctx context.Context, launchID string) (*Launch, error) {
 	return t.launchDataStore.GetLaunchData(ctx, launchID)
 }
 

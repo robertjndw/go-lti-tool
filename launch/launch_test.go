@@ -79,7 +79,7 @@ func (f *fixture) setStateCookie(state string) {
 	f.cookies.SetRaw("lti1p3_"+state, state)
 }
 
-func (f *fixture) validate(t *testing.T, state, idToken string) (*lti.LaunchData, error) {
+func (f *fixture) validate(t *testing.T, state, idToken string) (*lti.Launch, error) {
 	t.Helper()
 	req := ltitest.MakeLaunchRequest(t, state, idToken)
 	return launch.ValidateLaunch(context.Background(), f.cfg(), req)
@@ -535,7 +535,7 @@ func TestLaunch_Handler_InjectsContext(t *testing.T) {
 	f.setStateCookie(state)
 	token := f.validToken(t, nonce, nil)
 
-	var gotLD *lti.LaunchData
+	var gotLD *lti.Launch
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ld, ok := launch.FromContext(r.Context())
 		if !ok {

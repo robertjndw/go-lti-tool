@@ -60,7 +60,7 @@ func main() {
 
 // handleDeepLink renders a simple content picker for deep linking launches.
 func handleDeepLink(w http.ResponseWriter, r *http.Request) {
-	ld, ok := lti.FromContext(r.Context())
+	ld, ok := lti.LaunchFromContext(r.Context())
 	if !ok {
 		http.Error(w, "no launch data", http.StatusInternalServerError)
 		return
@@ -98,7 +98,7 @@ func handleContentPicker(w http.ResponseWriter, r *http.Request) {
 	resource := r.FormValue("resource")
 
 	// Restore the launch data from cache.
-	ld, err := tool.GetLaunchData(r.Context(), launchID)
+	ld, err := tool.GetLaunch(r.Context(), launchID)
 	if err != nil {
 		http.Error(w, "launch not found or expired", http.StatusBadRequest)
 		return

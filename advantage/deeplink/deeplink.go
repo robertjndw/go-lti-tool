@@ -43,7 +43,7 @@ func New(reg *lti.Registration, deploymentID string, settings *lti.DeepLinkingSe
 
 // NewFromLaunch creates a Builder from a validated LaunchData.
 // Returns ErrDeepLinkingNotAvailable if the launch is not a deep linking request.
-func NewFromLaunch(ld *lti.LaunchData) (*Builder, error) {
+func NewFromLaunch(ld *lti.Launch) (*Builder, error) {
 	if !ld.HasDeepLinking() {
 		return nil, lti.ErrDeepLinkingNotAvailable
 	}
@@ -63,14 +63,14 @@ func (b *Builder) ResponseJWT(resources []Resource) (string, error) {
 	}
 	now := time.Now()
 	claims := jwt.MapClaims{
-		"iss":   b.reg.ClientID,
-		"aud":   b.reg.Issuer, // DL 2.0 §4.1: aud must be the platform's issuer
-		"iat":   now.Unix(),
-		"exp":   now.Add(600 * time.Second).Unix(),
-		"nonce": nonce,
-		lti.ClaimPrefix + "message_type":  lti.MessageTypeDeepLinkingResponse,
-		lti.ClaimPrefix + "version":       lti.LTIVersion,
-		lti.ClaimPrefix + "deployment_id": b.deploymentID,
+		"iss":                               b.reg.ClientID,
+		"aud":                               b.reg.Issuer, // DL 2.0 §4.1: aud must be the platform's issuer
+		"iat":                               now.Unix(),
+		"exp":                               now.Add(600 * time.Second).Unix(),
+		"nonce":                             nonce,
+		lti.ClaimPrefix + "message_type":    lti.MessageTypeDeepLinkingResponse,
+		lti.ClaimPrefix + "version":         lti.LTIVersion,
+		lti.ClaimPrefix + "deployment_id":   b.deploymentID,
 		lti.ClaimPrefixDL + "content_items": resources,
 	}
 

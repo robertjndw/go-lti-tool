@@ -67,7 +67,7 @@ func main() {
 }
 
 func handleLaunch(w http.ResponseWriter, r *http.Request) {
-	ld, ok := lti.FromContext(r.Context())
+	ld, ok := lti.LaunchFromContext(r.Context())
 	if !ok {
 		http.Error(w, "no launch data in context", http.StatusInternalServerError)
 		return

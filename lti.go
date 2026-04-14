@@ -32,7 +32,7 @@ type (
 
 	Registration = lticore.Registration
 	Deployment   = lticore.Deployment
-	LaunchData   = lticore.LaunchData
+	Launch       = lticore.Launch
 
 	Datastore       = lticore.Datastore
 	NonceStore      = lticore.NonceStore

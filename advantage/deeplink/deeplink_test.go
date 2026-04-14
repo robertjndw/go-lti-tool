@@ -356,7 +356,7 @@ func TestNewFromLaunch_ResourceLaunch_ReturnsError(t *testing.T) {
 		ToolPrivateKey: key,
 		KID:            "tool-key-1",
 	}
-	ld := &lti.LaunchData{
+	ld := &lti.Launch{
 		LaunchID:     "launch-1",
 		Registration: reg,
 		Deployment:   &lti.Deployment{DeploymentID: "deploy-1"},
@@ -382,7 +382,7 @@ func TestNewFromLaunch_DeepLinkLaunch_Succeeds(t *testing.T) {
 		ToolPrivateKey: key,
 		KID:            "tool-key-1",
 	}
-	ld := &lti.LaunchData{
+	ld := &lti.Launch{
 		LaunchID:     "launch-1",
 		Registration: reg,
 		Deployment:   &lti.Deployment{DeploymentID: "deploy-1"},

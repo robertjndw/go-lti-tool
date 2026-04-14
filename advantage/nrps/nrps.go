@@ -46,7 +46,7 @@ func New(conn *connector.Connector, endpoint *lti.NRPSClaim) *Service {
 
 // NewFromLaunch creates an NRPS Service from a validated LaunchData.
 // Returns ErrNRPSNotAvailable if the launch does not include NRPS claims.
-func NewFromLaunch(ld *lti.LaunchData) (*Service, error) {
+func NewFromLaunch(ld *lti.Launch) (*Service, error) {
 	if !ld.HasNRPS() {
 		return nil, lti.ErrNRPSNotAvailable
 	}

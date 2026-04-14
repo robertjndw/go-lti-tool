@@ -78,20 +78,20 @@ func Handler(cfg Config, next http.Handler) http.Handler {
 
 // FromContext extracts the LaunchData stored by Handler from a request context.
 // Returns false if no launch data is present (e.g. the middleware was not applied).
-func FromContext(ctx context.Context) (*lticore.LaunchData, bool) {
-	ld, ok := ctx.Value(contextKey{}).(*lticore.LaunchData)
+func FromContext(ctx context.Context) (*lticore.Launch, bool) {
+	ld, ok := ctx.Value(contextKey{}).(*lticore.Launch)
 	return ld, ok
 }
 
 // FromCache reconstructs a LaunchData from the launch store using a launch ID.
 // Useful for restoring launch context in subsequent requests (e.g. AJAX calls).
-func FromCache(ctx context.Context, cfg Config, launchID string) (*lticore.LaunchData, error) {
+func FromCache(ctx context.Context, cfg Config, launchID string) (*lticore.Launch, error) {
 	return cfg.LaunchStore.GetLaunchData(ctx, launchID)
 }
 
 // ValidateLaunch processes a launch POST request and returns the validated LaunchData.
 // Use this when you prefer not to use the middleware pattern.
-func ValidateLaunch(ctx context.Context, cfg Config, r *http.Request) (*lticore.LaunchData, error) {
+func ValidateLaunch(ctx context.Context, cfg Config, r *http.Request) (*lticore.Launch, error) {
 	if err := r.ParseForm(); err != nil {
 		return nil, fmt.Errorf("lti/launch: failed to parse form: %w", err)
 	}
@@ -158,7 +158,7 @@ func ValidateLaunch(ctx context.Context, cfg Config, r *http.Request) (*lticore.
 	if err != nil {
 		return nil, fmt.Errorf("lti/launch: failed to generate launch ID: %w", err)
 	}
-	ld := &lticore.LaunchData{
+	ld := &lticore.Launch{
 		LaunchID:     launchID,
 		Claims:       claims,
 		Registration: reg,

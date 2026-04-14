@@ -53,7 +53,7 @@ func newConn(t *testing.T, tokenURL string) *connector.Connector {
 // AGS spec: NewFromLaunch must return ErrAGSNotAvailable when the launch has no AGS claim.
 func TestAGS_NewFromLaunch_NoAGSClaim_ReturnsError(t *testing.T) {
 	key := ltitest.NewKey(t)
-	ld := &lti.LaunchData{
+	ld := &lti.Launch{
 		LaunchID:     "launch-1",
 		Registration: &lti.Registration{ToolPrivateKey: key},
 		Claims:       &lti.LTIClaims{},
@@ -74,7 +74,7 @@ func TestAGS_NewFromLaunch_WithAGSClaim_Succeeds(t *testing.T) {
 		ToolPrivateKey: key,
 		KID:            "tool-key-1",
 	}
-	ld := &lti.LaunchData{
+	ld := &lti.Launch{
 		LaunchID:     "launch-1",
 		Registration: reg,
 		Claims: &lti.LTIClaims{

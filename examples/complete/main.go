@@ -77,7 +77,7 @@ func main() {
 
 // handleLaunch dispatches to the appropriate handler based on message type.
 func (a *app) handleLaunch(w http.ResponseWriter, r *http.Request) {
-	ld, ok := lti.FromContext(r.Context())
+	ld, ok := lti.LaunchFromContext(r.Context())
 	if !ok {
 		http.Error(w, "no launch data", http.StatusInternalServerError)
 		return
@@ -97,7 +97,7 @@ func (a *app) handleLaunch(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleResourceLaunch handles LtiResourceLinkRequest launches.
-func (a *app) handleResourceLaunch(w http.ResponseWriter, r *http.Request, ld *lti.LaunchData) {
+func (a *app) handleResourceLaunch(w http.ResponseWriter, r *http.Request, ld *lti.Launch) {
 	ctx := r.Context()
 	resp := map[string]any{
 		"launch_id": ld.LaunchID,
@@ -160,7 +160,7 @@ func (a *app) handleResourceLaunch(w http.ResponseWriter, r *http.Request, ld *l
 }
 
 // handleDeepLinkLaunch renders a content picker for deep linking launches.
-func (a *app) handleDeepLinkLaunch(w http.ResponseWriter, _ *http.Request, ld *lti.LaunchData) {
+func (a *app) handleDeepLinkLaunch(w http.ResponseWriter, _ *http.Request, ld *lti.Launch) {
 	fmt.Fprintf(w, `<!DOCTYPE html>
 <html>
 <head><title>Add Content</title></head>
@@ -180,7 +180,7 @@ func (a *app) handleContentPicker(w http.ResponseWriter, r *http.Request) {
 	launchID := r.URL.Query().Get("launch_id")
 	resource := r.URL.Query().Get("resource")
 
-	ld, err := a.tool.GetLaunchData(r.Context(), launchID)
+	ld, err := a.tool.GetLaunch(r.Context(), launchID)
 	if err != nil {
 		http.Error(w, "launch not found or expired", http.StatusBadRequest)
 		return

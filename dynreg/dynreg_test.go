@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -141,6 +142,48 @@ func TestHandler_NonHTTPSOpenIDConfigURL(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), dynreg.ErrInvalidOpenIDConfigURL.Error()) {
 		t.Errorf("body missing expected error: %s", rec.Body.String())
+	}
+}
+
+func TestHandler_NonHTTPSOpenIDConfigURL_AllowedByConfig(t *testing.T) {
+	cfg := minimalConfig(t)
+	cfg.AllowInsecureOpenIDConfigURL = true
+	cfg.HTTPClient = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			switch req.URL.String() {
+			case "http://platform.example.com/.well-known/openid-configuration":
+				body := `{"issuer":"http://platform.example.com","registration_endpoint":"http://platform.example.com/register"}`
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(body)),
+					Request:    req,
+				}, nil
+			case "http://platform.example.com/register":
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"client_id":"client-abc"}`)),
+					Request:    req,
+				}, nil
+			default:
+				t.Fatalf("unexpected URL: %s", req.URL.String())
+				return nil, nil
+			}
+		}),
+	}
+
+	h := dynreg.Handler(cfg)
+	req := httptest.NewRequest(http.MethodGet,
+		"/dynreg?openid_configuration=http://platform.example.com/.well-known/openid-configuration", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("want 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "org.imsglobal.lti.close") {
+		t.Errorf("response body missing close message: %s", rec.Body.String())
 	}
 }
 
@@ -368,6 +411,53 @@ func TestRegister_NonHTTPS(t *testing.T) {
 	if !errors.Is(err, dynreg.ErrInvalidOpenIDConfigURL) {
 		t.Errorf("want ErrInvalidOpenIDConfigURL, got %v", err)
 	}
+}
+
+func TestRegister_NonHTTPS_AllowedByConfig(t *testing.T) {
+	cfg := minimalConfig(t)
+	cfg.AllowInsecureOpenIDConfigURL = true
+	cfg.HTTPClient = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			switch req.URL.String() {
+			case "http://platform.example.com/.well-known/openid-configuration":
+				body := `{"issuer":"http://platform.example.com","registration_endpoint":"http://platform.example.com/register"}`
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(body)),
+					Request:    req,
+				}, nil
+			case "http://platform.example.com/register":
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"client_id":"client-abc"}`)),
+					Request:    req,
+				}, nil
+			default:
+				t.Fatalf("unexpected URL: %s", req.URL.String())
+				return nil, nil
+			}
+		}),
+	}
+
+	result, err := dynreg.Register(context.Background(), cfg,
+		"http://platform.example.com/.well-known/openid-configuration", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Registration.ClientID != "client-abc" {
+		t.Errorf("want client-abc, got %q", result.Registration.ClientID)
+	}
+	if result.Registration.Issuer != "http://platform.example.com" {
+		t.Errorf("want http://platform.example.com, got %q", result.Registration.Issuer)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
 }
 
 func TestRegister_DomainMismatch(t *testing.T) {

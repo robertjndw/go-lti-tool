@@ -65,6 +65,11 @@ type DynRegConfig struct {
 	// Defaults to http.DefaultClient when nil.
 	HTTPClient *http.Client
 
+	// AllowInsecureOpenIDConfigURL permits the incoming openid_configuration URL
+	// to use http instead of https. Leave this disabled in production; it exists
+	// only for local development flows where the platform exposes insecure URLs.
+	AllowInsecureOpenIDConfigURL bool
+
 	// --- Tool identity fields (sent in the registration request) ---
 
 	// ToolName is the human-readable display name sent to the platform.
@@ -192,7 +197,7 @@ func Register(ctx context.Context, cfg DynRegConfig, openidConfigURL, registrati
 	if openidConfigURL == "" {
 		return nil, ErrMissingOpenIDConfigURL
 	}
-	if err := requireHTTPS(openidConfigURL); err != nil {
+	if err := validateOpenIDConfigURL(openidConfigURL, cfg.AllowInsecureOpenIDConfigURL); err != nil {
 		return nil, err
 	}
 
@@ -296,10 +301,23 @@ func (cfg *DynRegConfig) scopes() []string {
 	return out
 }
 
-// requireHTTPS returns an error when rawURL does not use the https scheme.
-func requireHTTPS(rawURL string) error {
+// validateOpenIDConfigURL returns an error when rawURL is not a valid OpenID
+// configuration URL for the current security mode.
+func validateOpenIDConfigURL(rawURL string, allowInsecure bool) error {
 	u, err := url.Parse(rawURL)
-	if err != nil || u.Scheme != "https" {
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidOpenIDConfigURL, err)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("%w: missing host", ErrInvalidOpenIDConfigURL)
+	}
+	if allowInsecure {
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return fmt.Errorf("%w: URL must use http or https scheme", ErrInvalidOpenIDConfigURL)
+		}
+		return nil
+	}
+	if u.Scheme != "https" {
 		return fmt.Errorf("%w: URL must use https scheme", ErrInvalidOpenIDConfigURL)
 	}
 	return nil

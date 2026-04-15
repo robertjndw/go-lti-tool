@@ -99,13 +99,23 @@ func (t *Tool) HandleLaunch(next http.Handler) http.Handler {
 // Required for dynamic registration; optional but encouraged otherwise
 // (it documents the tool's intended URIs in one place).
 type ToolProfile struct {
-	Name           string
-	Domain         string
-	KID            string // Key ID for the tool's signing key, used in the JWT "kid" header and JWKS "kid" field.
-	LoginPath      string
-	JWKSPath       string
-	RedirectPaths  []string
-	TargetLinkPath string
+	Name   string
+	Domain string
+	// JWKSBaseURL overrides Domain when building the JWKS URI advertised to the
+	// platform. Set this when the platform's server must reach the tool via a
+	// different hostname than the browser — for example, when Moodle runs in
+	// Docker and must fetch JWKS via host.docker.internal while the browser uses
+	// localhost. If empty, Domain is used.
+	JWKSBaseURL string
+	// AllowInsecureOpenIDConfigURL permits incoming openid_configuration URLs to
+	// use http. This should stay false for production and only be enabled for
+	// local development platforms that do not expose HTTPS.
+	AllowInsecureOpenIDConfigURL bool
+	KID                          string // Key ID for the tool's signing key, used in the JWT "kid" header and JWKS "kid" field.
+	LoginPath                    string
+	JWKSPath                     string
+	RedirectPaths                []string
+	TargetLinkPath               string
 
 	// Optional placement/scope config
 	Claims           []string
@@ -151,14 +161,20 @@ func (t *Tool) HandleDynamicRegistration(profile ToolProfile) http.Handler {
 		redirectURIs[i] = profile.Domain + p
 	}
 
+	jwksBase := profile.Domain
+	if profile.JWKSBaseURL != "" {
+		jwksBase = profile.JWKSBaseURL
+	}
+
 	cfg := dynreg.DynRegConfig{
-		ToolName:          profile.Name,
-		ToolDomain:        profile.Domain,
-		RegistrationStore: t.dataStore, // Must be set by caller to persist the registration
-		InitiateLoginUri:  fmt.Sprintf("%s%s", profile.Domain, profile.LoginPath),
-		JWKSUri:           fmt.Sprintf("%s%s", profile.Domain, profile.JWKSPath),
-		TargetLinkUri:     fmt.Sprintf("%s%s", profile.Domain, profile.TargetLinkPath),
-		RedirectURIs:      redirectURIs,
+		ToolName:                     profile.Name,
+		ToolDomain:                   profile.Domain,
+		RegistrationStore:            t.dataStore, // Must be set by caller to persist the registration
+		InitiateLoginUri:             fmt.Sprintf("%s%s", profile.Domain, profile.LoginPath),
+		JWKSUri:                      fmt.Sprintf("%s%s", jwksBase, profile.JWKSPath),
+		TargetLinkUri:                fmt.Sprintf("%s%s", profile.Domain, profile.TargetLinkPath),
+		RedirectURIs:                 redirectURIs,
+		AllowInsecureOpenIDConfigURL: profile.AllowInsecureOpenIDConfigURL,
 
 		KID:     profile.KID,
 		ToolKey: key,

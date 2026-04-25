@@ -152,7 +152,7 @@ func TestHandler_NonHTTPSOpenIDConfigURL_AllowedByConfig(t *testing.T) {
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			switch req.URL.String() {
 			case "http://platform.example.com/.well-known/openid-configuration":
-				body := `{"issuer":"http://platform.example.com","registration_endpoint":"http://platform.example.com/register"}`
+				body := `{"issuer":"http://platform.example.com","registration_endpoint":"http://platform.example.com/register","jwks_uri":"http://platform.example.com/jwks","token_endpoint":"http://platform.example.com/token","authorization_endpoint":"http://platform.example.com/auth"}`
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Header:     make(http.Header),
@@ -188,13 +188,15 @@ func TestHandler_NonHTTPSOpenIDConfigURL_AllowedByConfig(t *testing.T) {
 }
 
 func TestHandler_DomainMismatch(t *testing.T) {
-	realPlatform := newPlatform(t, http.StatusOK)
-
-	// Attacker serves an openid-config that claims realPlatform's issuer URL.
+	// The attacker serves an openid-config whose Issuer claims a completely
+	// different hostname, so validateDomain must reject it.
 	attacker := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg := dynreg.OpenIDConfiguration{
-			Issuer:               realPlatform.URL,
-			RegistrationEndpoint: realPlatform.URL + "/register",
+			Issuer:                "https://legit-platform.example.com",
+			RegistrationEndpoint:  "https://legit-platform.example.com/register",
+			JWKSUri:               "https://legit-platform.example.com/jwks",
+			TokenEndpoint:         "https://legit-platform.example.com/token",
+			AuthorizationEndpoint: "https://legit-platform.example.com/auth",
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(cfg)
@@ -257,8 +259,11 @@ func TestHandler_WithRegistrationToken(t *testing.T) {
 		switch r.URL.Path {
 		case "/.well-known/openid-configuration":
 			cfg := dynreg.OpenIDConfiguration{
-				Issuer:               "https://" + r.Host,
-				RegistrationEndpoint: "https://" + r.Host + "/register",
+				Issuer:                "https://" + r.Host,
+				RegistrationEndpoint:  "https://" + r.Host + "/register",
+				JWKSUri:               "https://" + r.Host + "/jwks",
+				TokenEndpoint:         "https://" + r.Host + "/token",
+				AuthorizationEndpoint: "https://" + r.Host + "/auth",
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(cfg)
@@ -359,8 +364,11 @@ func TestRegister_WithDeploymentID(t *testing.T) {
 		switch r.URL.Path {
 		case "/.well-known/openid-configuration":
 			cfg := dynreg.OpenIDConfiguration{
-				Issuer:               "https://" + r.Host,
-				RegistrationEndpoint: "https://" + r.Host + "/register",
+				Issuer:                "https://" + r.Host,
+				RegistrationEndpoint:  "https://" + r.Host + "/register",
+				JWKSUri:               "https://" + r.Host + "/jwks",
+				TokenEndpoint:         "https://" + r.Host + "/token",
+				AuthorizationEndpoint: "https://" + r.Host + "/auth",
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(cfg)
@@ -416,7 +424,7 @@ func TestRegister_NonHTTPS_AllowedByConfig(t *testing.T) {
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			switch req.URL.String() {
 			case "http://platform.example.com/.well-known/openid-configuration":
-				body := `{"issuer":"http://platform.example.com","registration_endpoint":"http://platform.example.com/register"}`
+				body := `{"issuer":"http://platform.example.com","registration_endpoint":"http://platform.example.com/register","jwks_uri":"http://platform.example.com/jwks","token_endpoint":"http://platform.example.com/token","authorization_endpoint":"http://platform.example.com/auth"}`
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Header:     make(http.Header),
@@ -457,12 +465,14 @@ func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func TestRegister_DomainMismatch(t *testing.T) {
-	realPlatform := newPlatform(t, http.StatusOK)
-
+	// The attacker serves an openid-config whose Issuer claims a different hostname.
 	attacker := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cfg := dynreg.OpenIDConfiguration{
-			Issuer:               realPlatform.URL,
-			RegistrationEndpoint: realPlatform.URL + "/register",
+			Issuer:                "https://legit-platform.example.com",
+			RegistrationEndpoint:  "https://legit-platform.example.com/register",
+			JWKSUri:               "https://legit-platform.example.com/jwks",
+			TokenEndpoint:         "https://legit-platform.example.com/token",
+			AuthorizationEndpoint: "https://legit-platform.example.com/auth",
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(cfg)
@@ -488,8 +498,11 @@ func TestRequestFields(t *testing.T) {
 		switch r.URL.Path {
 		case "/.well-known/openid-configuration":
 			cfg := dynreg.OpenIDConfiguration{
-				Issuer:               "https://" + r.Host,
-				RegistrationEndpoint: "https://" + r.Host + "/register",
+				Issuer:                "https://" + r.Host,
+				RegistrationEndpoint:  "https://" + r.Host + "/register",
+				JWKSUri:               "https://" + r.Host + "/jwks",
+				TokenEndpoint:         "https://" + r.Host + "/token",
+				AuthorizationEndpoint: "https://" + r.Host + "/auth",
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(cfg)

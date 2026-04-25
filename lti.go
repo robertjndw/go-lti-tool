@@ -34,8 +34,9 @@ type (
 	Deployment   = lticore.Deployment
 	Launch       = lticore.Launch
 
-	Datastore       = lticore.Datastore
-	NonceStore      = lticore.NonceStore
+	Datastore           = lticore.Datastore
+	RegistrationWriter  = lticore.RegistrationWriter
+	NonceStore          = lticore.NonceStore
 	LaunchDataStore = lticore.LaunchDataStore
 	CookieHandler   = lticore.CookieHandler
 

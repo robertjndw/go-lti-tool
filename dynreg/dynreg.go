@@ -49,7 +49,7 @@ type DynRegConfig struct {
 	// RegistrationStore persists the platform Registration (and optional
 	// Deployment) produced by a successful registration. If nil, the result is
 	// discarded — useful only in tests.
-	RegistrationStore lticore.Datastore
+	RegistrationStore lticore.RegistrationWriter
 
 	// ToolKey is the RSA private key the tool uses to sign service-call JWTs
 	// (AGS, NRPS). It is stored in the Registration so that subsequent
@@ -334,8 +334,8 @@ func validateDomain(configURL, issuer string) error {
 	if err != nil {
 		return fmt.Errorf("%w: malformed issuer %q: %v", ErrDomainMismatch, issuer, err)
 	}
-	if cfgU.Host != issuerU.Host {
-		return fmt.Errorf("%w: config host %q != issuer host %q", ErrDomainMismatch, cfgU.Host, issuerU.Host)
+	if cfgU.Hostname() != issuerU.Hostname() {
+		return fmt.Errorf("%w: config host %q != issuer host %q", ErrDomainMismatch, cfgU.Hostname(), issuerU.Hostname())
 	}
 	return nil
 }
@@ -368,6 +368,15 @@ func fetchOpenIDConfig(ctx context.Context, client *http.Client, rawURL string) 
 	}
 	if cfg.RegistrationEndpoint == "" {
 		return nil, errors.New("OpenID configuration missing registration_endpoint")
+	}
+	if cfg.JWKSUri == "" {
+		return nil, errors.New("OpenID configuration missing jwks_uri")
+	}
+	if cfg.TokenEndpoint == "" {
+		return nil, errors.New("OpenID configuration missing token_endpoint")
+	}
+	if cfg.AuthorizationEndpoint == "" {
+		return nil, errors.New("OpenID configuration missing authorization_endpoint")
 	}
 	return &cfg, nil
 }

@@ -57,7 +57,9 @@ func main() {
 	}
 
 	ds := lti.NewMemoryStore()
-	ds.AddRegistration(context.TODO(), *reg)
+	if err := ds.AddRegistration(context.TODO(), *reg); err != nil {
+		log.Fatalf("failed to add registration: %v", err)
+	}
 
 	tool := lti.NewTool(
 		lti.WithDataStore(ds),

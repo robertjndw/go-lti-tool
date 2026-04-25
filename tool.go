@@ -155,16 +155,24 @@ func (t *Tool) HandleDynamicRegistration(profile ToolProfile) http.Handler {
 			http.Error(w, "JWKS not configured: use WithKeySet", http.StatusInternalServerError)
 		})
 	}
-	key, ok := t.keySet.GetPrivateKey(profile.KID)
+	privProvider, ok := t.keySet.(jwks.PrivateKeyProvider)
+	if !ok {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "key set does not support private key access: use jwks.KeySet", http.StatusInternalServerError)
+		})
+	}
+	key, ok := privProvider.GetPrivateKey(profile.KID)
 	if !ok {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, fmt.Sprintf("key not found for KID %q: check tool configuration", profile.KID), http.StatusInternalServerError)
 		})
 	}
 
-	redirectURIs := make([]string, len(profile.RedirectPaths))
-	for i, p := range profile.RedirectPaths {
-		redirectURIs[i], _ = url.JoinPath(profile.Domain, p)
+	regWriter, ok := t.dataStore.(lticore.RegistrationWriter)
+	if !ok {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "data store does not support writing registrations: implement RegistrationWriter", http.StatusInternalServerError)
+		})
 	}
 
 	jwksBase := profile.Domain
@@ -174,18 +182,43 @@ func (t *Tool) HandleDynamicRegistration(profile ToolProfile) http.Handler {
 
 	// ToolDomain must be a bare hostname (no scheme/path) per the LTI DR spec.
 	toolDomain := profile.Domain
-	if u, err := url.Parse(profile.Domain); err == nil && u.Host != "" {
-		toolDomain = u.Host
+	if u, err := url.Parse(profile.Domain); err == nil && u.Hostname() != "" {
+		toolDomain = u.Hostname()
 	}
 
-	jwksURI, _ := url.JoinPath(jwksBase, profile.JWKSPath)
-	loginURI, _ := url.JoinPath(profile.Domain, profile.LoginPath)
-	targetURI, _ := url.JoinPath(profile.Domain, profile.TargetLinkPath)
+	jwksURI, err := url.JoinPath(jwksBase, profile.JWKSPath)
+	if err != nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, fmt.Sprintf("invalid JWKS URL in tool profile: %v", err), http.StatusInternalServerError)
+		})
+	}
+	loginURI, err := url.JoinPath(profile.Domain, profile.LoginPath)
+	if err != nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, fmt.Sprintf("invalid login URL in tool profile: %v", err), http.StatusInternalServerError)
+		})
+	}
+	targetURI, err := url.JoinPath(profile.Domain, profile.TargetLinkPath)
+	if err != nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, fmt.Sprintf("invalid target link URL in tool profile: %v", err), http.StatusInternalServerError)
+		})
+	}
+
+	redirectURIs := make([]string, len(profile.RedirectPaths))
+	for i, p := range profile.RedirectPaths {
+		redirectURIs[i], err = url.JoinPath(profile.Domain, p)
+		if err != nil {
+			return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				http.Error(w, fmt.Sprintf("invalid redirect URI path %q in tool profile: %v", p, err), http.StatusInternalServerError)
+			})
+		}
+	}
 
 	cfg := dynreg.DynRegConfig{
 		ToolName:                     profile.Name,
 		ToolDomain:                   toolDomain,
-		RegistrationStore:            t.dataStore, // Must be set by caller to persist the registration
+		RegistrationStore:            regWriter,
 		InitiateLoginUri:             loginURI,
 		JWKSUri:                      jwksURI,
 		TargetLinkUri:                targetURI,

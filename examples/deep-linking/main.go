@@ -25,21 +25,6 @@ import (
 	"github.com/robertjndw/go-lti/jwks"
 )
 
-type exampleStore struct {
-	reg *lti.Registration
-}
-
-func (s *exampleStore) FindRegistrationByIssuer(_ context.Context, issuer string) (*lti.Registration, error) {
-	if s.reg.Issuer == issuer {
-		return s.reg, nil
-	}
-	return nil, lti.ErrRegistrationNotFound
-}
-
-func (s *exampleStore) FindDeployment(_ context.Context, _, _ string) (*lti.Deployment, error) {
-	return &lti.Deployment{DeploymentID: "1"}, nil
-}
-
 var tool *lti.Tool
 
 func main() {
@@ -58,7 +43,14 @@ func main() {
 		KID:            "key-1",
 	}
 
-	store := &exampleStore{reg: reg}
+	store := lti.NewMemoryStore()
+	if err := store.AddRegistration(context.Background(), *reg); err != nil {
+		log.Fatalf("failed to add registration: %v", err)
+	}
+	if err := store.AddDeployment(context.Background(), reg.Issuer, lti.Deployment{DeploymentID: "your-deployment-id"}); err != nil {
+		log.Fatalf("failed to add deployment: %v", err)
+	}
+
 	tool = lti.NewTool(
 		lti.WithDataStore(store),
 		lti.WithKeySet(jwks.FromRegistration(reg)),
@@ -77,7 +69,7 @@ func main() {
 
 // handleDeepLink renders a simple content picker for deep linking launches.
 func handleDeepLink(w http.ResponseWriter, r *http.Request) {
-	ld, ok := lti.FromContext(r.Context())
+	ld, ok := lti.LaunchFromContext(r.Context())
 	if !ok {
 		http.Error(w, "no launch data", http.StatusInternalServerError)
 		return
@@ -115,7 +107,7 @@ func handleContentPicker(w http.ResponseWriter, r *http.Request) {
 	resource := r.FormValue("resource")
 
 	// Restore the launch data from cache.
-	ld, err := tool.GetLaunchData(r.Context(), launchID)
+	ld, err := tool.GetLaunch(r.Context(), launchID)
 	if err != nil {
 		http.Error(w, "launch not found or expired", http.StatusBadRequest)
 		return

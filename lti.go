@@ -11,6 +11,7 @@ package lti
 import (
 	"crypto/rsa"
 
+	"github.com/robertjndw/go-lti/dynreg"
 	lticore "github.com/robertjndw/go-lti/internal/lticore"
 )
 
@@ -31,14 +32,17 @@ type (
 
 	Registration = lticore.Registration
 	Deployment   = lticore.Deployment
-	LaunchData   = lticore.LaunchData
+	Launch       = lticore.Launch
 
-	Datastore       = lticore.Datastore
-	NonceStore      = lticore.NonceStore
+	Datastore           = lticore.Datastore
+	RegistrationWriter  = lticore.RegistrationWriter
+	NonceStore          = lticore.NonceStore
 	LaunchDataStore = lticore.LaunchDataStore
 	CookieHandler   = lticore.CookieHandler
 
 	DefaultCookieHandler = lticore.DefaultCookieHandler
+
+	ToolMessage = dynreg.ToolMessage
 )
 
 // ParsePrivateKey parses a PEM-encoded RSA private key (PKCS#1 or PKCS#8).

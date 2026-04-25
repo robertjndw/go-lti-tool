@@ -67,7 +67,7 @@ func membershipsBody(t *testing.T, members []nrps.Member) []byte {
 // NRPS spec: NewFromLaunch must return ErrNRPSNotAvailable when the launch has no NRPS claim.
 func TestNRPS_NewFromLaunch_NoNRPSClaim_ReturnsError(t *testing.T) {
 	key := ltitest.NewKey(t)
-	ld := &lti.LaunchData{
+	ld := &lti.Launch{
 		LaunchID:     "launch-1",
 		Registration: &lti.Registration{ToolPrivateKey: key},
 		Claims:       &lti.LTIClaims{},
@@ -88,7 +88,7 @@ func TestNRPS_NewFromLaunch_WithNRPSClaim_Succeeds(t *testing.T) {
 		ToolPrivateKey: key,
 		KID:            "tool-key-1",
 	}
-	ld := &lti.LaunchData{
+	ld := &lti.Launch{
 		LaunchID:     "launch-1",
 		Registration: reg,
 		Claims: &lti.LTIClaims{

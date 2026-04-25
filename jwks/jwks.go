@@ -11,10 +11,18 @@ import (
 	"github.com/robertjndw/go-lti/internal/lticore"
 )
 
-// KeySetProvider serves the tool's public JWKS. *jwks.KeySet from the jwks
-// sub-package satisfies this interface.
+// KeySetProvider serves the tool's public JWKS.
+// Implement this to supply a custom key backend; *KeySet satisfies it.
 type KeySetProvider interface {
 	PublicJWKS() ([]byte, error)
+}
+
+// PrivateKeyProvider extends KeySetProvider with private-key retrieval,
+// needed by components such as dynamic registration.
+// *KeySet satisfies this interface.
+type PrivateKeyProvider interface {
+	KeySetProvider
+	GetPrivateKey(kid string) (*rsa.PrivateKey, bool)
 }
 
 // publicJWK is the JSON representation of a single RSA public key in JWK format.
@@ -35,7 +43,6 @@ type jwksDocument struct {
 // KeySet holds one or more RSA private keys and can serve the corresponding
 // public keys as a JWKS endpoint.
 type KeySet struct {
-	// keys maps KID → RSA private key.
 	keys map[string]*rsa.PrivateKey
 }
 
@@ -49,6 +56,12 @@ func FromRegistration(reg *lticore.Registration) *KeySet {
 	return NewKeySet(map[string]*rsa.PrivateKey{
 		reg.KID: reg.ToolPrivateKey,
 	})
+}
+
+// GetPrivateKey retrieves the RSA private key for the given KID, if it exists.
+func (ks *KeySet) GetPrivateKey(kid string) (*rsa.PrivateKey, bool) {
+	priv, ok := ks.keys[kid]
+	return priv, ok
 }
 
 // PublicJWKS encodes the tool's public key set as a JSON JWKS document.

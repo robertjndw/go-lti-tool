@@ -36,11 +36,13 @@ func newFixture(t *testing.T) *fixture {
 	toolKey := ltitest.NewKey(t)
 	jwksSrv := ltitest.NewJWKSServer(t, "platform-kid-1", platformKey)
 	reg := ltitest.NewRegistration(toolKey, jwksSrv.URL)
+	ds := &ltitest.SimpleDatastore{}
+	ds.AddRegistration(context.TODO(), *reg)
 	return &fixture{
 		platformKey: platformKey,
 		toolKey:     toolKey,
 		reg:         reg,
-		ds:          &ltitest.SimpleDatastore{Reg: reg},
+		ds:          ds,
 		nonces:      lti.NewMemoryNonceStore(),
 		launches:    lti.NewMemoryLaunchDataStore(),
 		cookies:     ltitest.NewCookieHandler(),
@@ -77,7 +79,7 @@ func (f *fixture) setStateCookie(state string) {
 	f.cookies.SetRaw("lti1p3_"+state, state)
 }
 
-func (f *fixture) validate(t *testing.T, state, idToken string) (*lti.LaunchData, error) {
+func (f *fixture) validate(t *testing.T, state, idToken string) (*lti.Launch, error) {
 	t.Helper()
 	req := ltitest.MakeLaunchRequest(t, state, idToken)
 	return launch.ValidateLaunch(context.Background(), f.cfg(), req)
@@ -165,11 +167,11 @@ func TestLaunch_TamperedPayload_Rejected(t *testing.T) {
 		"exp":   time.Now().Add(time.Hour).Unix(),
 		"iat":   time.Now().Unix(),
 		"nonce": nonce,
-		"https://purl.imsglobal.org/spec/lti/claim/message_type":   "LtiResourceLinkRequest",
-		"https://purl.imsglobal.org/spec/lti/claim/version":        "1.3.0",
-		"https://purl.imsglobal.org/spec/lti/claim/deployment_id":  "deploy-1",
-		"https://purl.imsglobal.org/spec/lti/claim/roles":          []string{},
-		"https://purl.imsglobal.org/spec/lti/claim/resource_link":  map[string]any{"id": "link-1"},
+		"https://purl.imsglobal.org/spec/lti/claim/message_type":    "LtiResourceLinkRequest",
+		"https://purl.imsglobal.org/spec/lti/claim/version":         "1.3.0",
+		"https://purl.imsglobal.org/spec/lti/claim/deployment_id":   "deploy-1",
+		"https://purl.imsglobal.org/spec/lti/claim/roles":           []string{},
+		"https://purl.imsglobal.org/spec/lti/claim/resource_link":   map[string]any{"id": "link-1"},
 		"https://purl.imsglobal.org/spec/lti/claim/target_link_uri": "https://tool.example.com/launch",
 	}
 	encoded, _ := json.Marshal(malicious)
@@ -533,7 +535,7 @@ func TestLaunch_Handler_InjectsContext(t *testing.T) {
 	f.setStateCookie(state)
 	token := f.validToken(t, nonce, nil)
 
-	var gotLD *lti.LaunchData
+	var gotLD *lti.Launch
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ld, ok := launch.FromContext(r.Context())
 		if !ok {
@@ -724,7 +726,8 @@ func TestLaunch_MultipleKeysInJWKS_SelectsByKID(t *testing.T) {
 		"old-key":     oldKey,
 	})
 	reg := ltitest.NewRegistration(toolKey, jwksSrv.URL)
-	ds := &ltitest.SimpleDatastore{Reg: reg}
+	ds := &ltitest.SimpleDatastore{}
+	ds.AddRegistration(context.TODO(), *reg)
 	nonces := lti.NewMemoryNonceStore()
 	cookies := ltitest.NewCookieHandler()
 

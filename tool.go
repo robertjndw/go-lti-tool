@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 
+	"github.com/robertjndw/go-lti/dynreg"
 	lticore "github.com/robertjndw/go-lti/internal/lticore"
 	"github.com/robertjndw/go-lti/jwks"
 	"github.com/robertjndw/go-lti/launch"
@@ -22,7 +24,7 @@ type Tool struct {
 	keySet          jwks.KeySetProvider
 }
 
-// NewTool creates a Tool with in-memory stores and the default cookie handler.
+// NewTool creates a Tool pre-configured with in-memory stores and the default cookie handler.
 // Override any component with the With* option functions.
 func NewTool(opts ...ToolOption) *Tool {
 	t := &Tool{
@@ -38,15 +40,15 @@ func NewTool(opts ...ToolOption) *Tool {
 	return t
 }
 
-// FromContext extracts the LaunchData stored by HandleLaunch from a request context.
+// LaunchFromContext extracts the *Launch stored by HandleLaunch from a request context.
 // Returns false if the middleware was not applied or validation failed.
-func FromContext(ctx context.Context) (*LaunchData, bool) {
+func LaunchFromContext(ctx context.Context) (*Launch, bool) {
 	return launch.FromContext(ctx)
 }
 
-// GetLaunchData retrieves previously cached launch data by launch ID.
+// GetLaunch retrieves previously cached launch data by launch ID.
 // Useful for restoring launch context in subsequent requests (e.g. after deep-link content selection).
-func (t *Tool) GetLaunchData(ctx context.Context, launchID string) (*LaunchData, error) {
+func (t *Tool) GetLaunch(ctx context.Context, launchID string) (*Launch, error) {
 	return t.launchDataStore.GetLaunchData(ctx, launchID)
 }
 
@@ -92,4 +94,154 @@ func (t *Tool) HandleLaunch(next http.Handler) http.Handler {
 		LaunchStore:   t.launchDataStore,
 		CookieHandler: t.cookieHandler,
 	}, next)
+}
+
+// ToolProfile describes the tool to a platform.
+// Required for dynamic registration; optional but encouraged otherwise
+// (it documents the tool's intended URIs in one place).
+type ToolProfile struct {
+	Name   string
+	Domain string
+	// JWKSBaseURL overrides Domain when building the JWKS URI advertised to the
+	// platform. Set this when the platform's server must reach the tool via a
+	// different hostname than the browser — for example, when Moodle runs in
+	// Docker and must fetch JWKS via host.docker.internal while the browser uses
+	// localhost. If empty, Domain is used.
+	JWKSBaseURL string
+	// AllowInsecureOpenIDConfigURL permits incoming openid_configuration URLs to
+	// use http. This should stay false for production and only be enabled for
+	// local development platforms that do not expose HTTPS.
+	AllowInsecureOpenIDConfigURL bool
+	KID                          string // Key ID for the tool's signing key, used in the JWT "kid" header and JWKS "kid" field.
+	LoginPath                    string
+	JWKSPath                     string
+	RedirectPaths                []string
+	TargetLinkPath               string
+
+	// Optional placement/scope config
+	Claims           []string
+	Scopes           []string
+	Messages         []ToolMessage
+	CustomParameters map[string]string
+	SecondaryDomains []string
+
+	// Optional metadata (shown in platform admin UIs)
+	Description string
+	LogoURI     string
+	Contacts    []string
+	ClientURI   string
+	TOSURI      string
+	PolicyURI   string
+}
+
+// HandleDynamicRegistration returns an http.Handler for the LTI Dynamic
+// Registration endpoint (spec: https://www.imsglobal.org/spec/lti-dr/v1p0).
+//
+// The platform opens this URL in an iframe or new tab with an
+// openid_configuration query parameter (and an optional registration_token).
+// The handler fetches the platform's OpenID Provider Configuration, POSTs a
+// client registration request, persists the resulting Registration via
+// cfg.RegistrationStore, and responds with an HTML page that sends the
+// org.imsglobal.lti.close postMessage back to the platform.
+//
+// cfg carries the tool-specific information that cannot be derived from the
+// shared Tool state (tool name, domain, JWKS URI, login URI, signing key, etc.).
+// Set cfg.RegistrationStore to persist the incoming registration — typically
+// the same store used with WithDataStore, which implements RegistrationStore
+// when using MemoryStore or a compatible backend.
+func (t *Tool) HandleDynamicRegistration(profile ToolProfile) http.Handler {
+	if t.keySet == nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "JWKS not configured: use WithKeySet", http.StatusInternalServerError)
+		})
+	}
+	privProvider, ok := t.keySet.(jwks.PrivateKeyProvider)
+	if !ok {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "key set does not support private key access: use jwks.KeySet", http.StatusInternalServerError)
+		})
+	}
+	key, ok := privProvider.GetPrivateKey(profile.KID)
+	if !ok {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, fmt.Sprintf("key not found for KID %q: check tool configuration", profile.KID), http.StatusInternalServerError)
+		})
+	}
+
+	regWriter, ok := t.dataStore.(lticore.RegistrationWriter)
+	if !ok {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "data store does not support writing registrations: implement RegistrationWriter", http.StatusInternalServerError)
+		})
+	}
+
+	jwksBase := profile.Domain
+	if profile.JWKSBaseURL != "" {
+		jwksBase = profile.JWKSBaseURL
+	}
+
+	// ToolDomain must be a bare hostname (no scheme/path) per the LTI DR spec.
+	toolDomain := profile.Domain
+	if u, err := url.Parse(profile.Domain); err == nil && u.Hostname() != "" {
+		toolDomain = u.Hostname()
+	}
+
+	jwksURI, err := url.JoinPath(jwksBase, profile.JWKSPath)
+	if err != nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, fmt.Sprintf("invalid JWKS URL in tool profile: %v", err), http.StatusInternalServerError)
+		})
+	}
+	loginURI, err := url.JoinPath(profile.Domain, profile.LoginPath)
+	if err != nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, fmt.Sprintf("invalid login URL in tool profile: %v", err), http.StatusInternalServerError)
+		})
+	}
+	targetURI, err := url.JoinPath(profile.Domain, profile.TargetLinkPath)
+	if err != nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, fmt.Sprintf("invalid target link URL in tool profile: %v", err), http.StatusInternalServerError)
+		})
+	}
+
+	redirectURIs := make([]string, len(profile.RedirectPaths))
+	for i, p := range profile.RedirectPaths {
+		redirectURIs[i], err = url.JoinPath(profile.Domain, p)
+		if err != nil {
+			return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				http.Error(w, fmt.Sprintf("invalid redirect URI path %q in tool profile: %v", p, err), http.StatusInternalServerError)
+			})
+		}
+	}
+
+	cfg := dynreg.DynRegConfig{
+		ToolName:                     profile.Name,
+		ToolDomain:                   toolDomain,
+		RegistrationStore:            regWriter,
+		InitiateLoginUri:             loginURI,
+		JWKSUri:                      jwksURI,
+		TargetLinkUri:                targetURI,
+		RedirectURIs:                 redirectURIs,
+		AllowInsecureOpenIDConfigURL: profile.AllowInsecureOpenIDConfigURL,
+
+		KID:     profile.KID,
+		ToolKey: key,
+
+		// Optional placement/scope config
+		Claims:           profile.Claims,
+		Scopes:           profile.Scopes,
+		Messages:         profile.Messages,
+		CustomParameters: profile.CustomParameters,
+		SecondaryDomains: profile.SecondaryDomains,
+
+		// Metadata fields
+		Description: profile.Description,
+		LogoURI:     profile.LogoURI,
+		Contacts:    profile.Contacts,
+		ClientURI:   profile.ClientURI,
+		TOSURI:      profile.TOSURI,
+		PolicyURI:   profile.PolicyURI,
+	}
+	return dynreg.Handler(cfg)
 }

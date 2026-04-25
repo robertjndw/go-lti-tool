@@ -26,21 +26,6 @@ import (
 	"github.com/robertjndw/go-lti/jwks"
 )
 
-type exampleStore struct {
-	reg *lti.Registration
-}
-
-func (s *exampleStore) FindRegistrationByIssuer(_ context.Context, issuer string) (*lti.Registration, error) {
-	if s.reg.Issuer == issuer {
-		return s.reg, nil
-	}
-	return nil, lti.ErrRegistrationNotFound
-}
-
-func (s *exampleStore) FindDeployment(_ context.Context, _, _ string) (*lti.Deployment, error) {
-	return &lti.Deployment{DeploymentID: "1"}, nil
-}
-
 func main() {
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -57,7 +42,10 @@ func main() {
 		KID:            "key-1",
 	}
 
-	store := &exampleStore{reg: reg}
+	store := lti.NewMemoryStore()
+	if err := store.AddRegistration(context.TODO(), *reg); err != nil {
+		log.Fatalf("failed to add registration: %v", err)
+	}
 	tool := lti.NewTool(
 		lti.WithDataStore(store),
 		lti.WithKeySet(jwks.FromRegistration(reg)),
@@ -73,7 +61,7 @@ func main() {
 }
 
 func handleLaunch(w http.ResponseWriter, r *http.Request) {
-	ld, ok := lti.FromContext(r.Context())
+	ld, ok := lti.LaunchFromContext(r.Context())
 	if !ok {
 		http.Error(w, "no launch data", http.StatusInternalServerError)
 		return

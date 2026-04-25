@@ -17,6 +17,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	lti "github.com/robertjndw/go-lti"
+	"github.com/robertjndw/go-lti/internal/lticore"
 )
 
 // NewKey generates a 2048-bit RSA key pair for use in tests.
@@ -115,12 +116,12 @@ func DefaultClaims(reg *lti.Registration, nonce string) jwt.MapClaims {
 		"iat":   time.Now().Unix(),
 		"exp":   time.Now().Add(5 * time.Minute).Unix(),
 		"nonce": nonce,
-		"https://purl.imsglobal.org/spec/lti/claim/message_type":   "LtiResourceLinkRequest",
-		"https://purl.imsglobal.org/spec/lti/claim/version":        "1.3.0",
-		"https://purl.imsglobal.org/spec/lti/claim/deployment_id":  "deploy-1",
+		"https://purl.imsglobal.org/spec/lti/claim/message_type":    "LtiResourceLinkRequest",
+		"https://purl.imsglobal.org/spec/lti/claim/version":         "1.3.0",
+		"https://purl.imsglobal.org/spec/lti/claim/deployment_id":   "deploy-1",
 		"https://purl.imsglobal.org/spec/lti/claim/target_link_uri": "https://tool.example.com/launch",
-		"https://purl.imsglobal.org/spec/lti/claim/roles":          []string{"http://purl.imsglobal.org/vocab/lis/v2/membership#Learner"},
-		"https://purl.imsglobal.org/spec/lti/claim/resource_link":  map[string]any{"id": "resource-link-1", "title": "Test Resource"},
+		"https://purl.imsglobal.org/spec/lti/claim/roles":           []string{"http://purl.imsglobal.org/vocab/lis/v2/membership#Learner"},
+		"https://purl.imsglobal.org/spec/lti/claim/resource_link":   map[string]any{"id": "resource-link-1", "title": "Test Resource"},
 	}
 }
 
@@ -133,15 +134,15 @@ func DeepLinkClaims(reg *lti.Registration, nonce string) jwt.MapClaims {
 		"iat":   time.Now().Unix(),
 		"exp":   time.Now().Add(5 * time.Minute).Unix(),
 		"nonce": nonce,
-		"https://purl.imsglobal.org/spec/lti/claim/message_type":  "LtiDeepLinkingRequest",
-		"https://purl.imsglobal.org/spec/lti/claim/version":       "1.3.0",
-		"https://purl.imsglobal.org/spec/lti/claim/deployment_id": "deploy-1",
+		"https://purl.imsglobal.org/spec/lti/claim/message_type":    "LtiDeepLinkingRequest",
+		"https://purl.imsglobal.org/spec/lti/claim/version":         "1.3.0",
+		"https://purl.imsglobal.org/spec/lti/claim/deployment_id":   "deploy-1",
 		"https://purl.imsglobal.org/spec/lti/claim/target_link_uri": "https://tool.example.com/launch",
-		"https://purl.imsglobal.org/spec/lti/claim/roles":          []string{},
+		"https://purl.imsglobal.org/spec/lti/claim/roles":           []string{},
 		"https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings": map[string]any{
-			"deep_link_return_url":                   "https://platform.example.com/dl-return",
-			"accept_types":                           []string{"ltiResourceLink"},
-			"accept_presentation_document_targets":   []string{"iframe"},
+			"deep_link_return_url":                 "https://platform.example.com/dl-return",
+			"accept_types":                         []string{"ltiResourceLink"},
+			"accept_presentation_document_targets": []string{"iframe"},
 		},
 	}
 }
@@ -161,20 +162,33 @@ func SignJWT(t *testing.T, priv *rsa.PrivateKey, kid string, claims jwt.MapClaim
 // SimpleDatastore implements lti.Datastore with a single registration and
 // a permissive deployment lookup.
 type SimpleDatastore struct {
-	Reg *lti.Registration
+	registrations map[string]*lti.Registration
+	savedDep      *lti.Deployment
+}
+
+func (s *SimpleDatastore) AddRegistration(_ context.Context, reg lti.Registration) error {
+	if s.registrations == nil {
+		s.registrations = make(map[string]*lti.Registration)
+	}
+	s.registrations[reg.Issuer] = &reg
+	return nil
+}
+
+func (s *SimpleDatastore) AddDeployment(_ context.Context, _ string, dep lticore.Deployment) error {
+	s.savedDep = &dep
+	return nil
 }
 
 func (s *SimpleDatastore) FindRegistrationByIssuer(_ context.Context, issuer string) (*lti.Registration, error) {
-	if s.Reg.Issuer == issuer {
-		return s.Reg, nil
+	reg, ok := s.registrations[issuer]
+	if !ok {
+		return nil, lti.ErrRegistrationNotFound
 	}
-	return nil, lti.ErrRegistrationNotFound
+	return reg, nil
 }
 
 func (s *SimpleDatastore) FindDeployment(_ context.Context, _, deploymentID string) (*lti.Deployment, error) {
-	if deploymentID == "" {
-		return nil, lti.ErrDeploymentNotFound
-	}
+	// Accept any deployment ID for this example.
 	return &lti.Deployment{DeploymentID: deploymentID}, nil
 }
 
@@ -182,6 +196,16 @@ func (s *SimpleDatastore) FindDeployment(_ context.Context, _, deploymentID stri
 type StrictDatastore struct {
 	Reg          *lti.Registration
 	DeploymentID string
+}
+
+func (s *StrictDatastore) AddRegistration(_ context.Context, reg lti.Registration) error {
+	s.Reg = &reg
+	return nil
+}
+
+func (s *StrictDatastore) AddDeployment(_ context.Context, _ string, dep lticore.Deployment) error {
+	s.DeploymentID = dep.DeploymentID
+	return nil
 }
 
 func (s *StrictDatastore) FindRegistrationByIssuer(_ context.Context, issuer string) (*lti.Registration, error) {

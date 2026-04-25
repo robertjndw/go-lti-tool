@@ -146,7 +146,7 @@ func TestMemoryLaunchDataStore_RoundTrip(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryLaunchDataStore()
 
-	data := &LaunchData{
+	data := &Launch{
 		LaunchID: "launch-1",
 		Claims:   &LTIClaims{Subject: "user-42"},
 	}
@@ -175,8 +175,8 @@ func TestMemoryLaunchDataStore_OverwriteEntry(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryLaunchDataStore()
 
-	store.CacheLaunchData(ctx, "launch-1", &LaunchData{Claims: &LTIClaims{Subject: "original"}}) //nolint:errcheck
-	store.CacheLaunchData(ctx, "launch-1", &LaunchData{Claims: &LTIClaims{Subject: "updated"}})  //nolint:errcheck
+	store.CacheLaunchData(ctx, "launch-1", &Launch{Claims: &LTIClaims{Subject: "original"}}) //nolint:errcheck
+	store.CacheLaunchData(ctx, "launch-1", &Launch{Claims: &LTIClaims{Subject: "updated"}})  //nolint:errcheck
 
 	got, _ := store.GetLaunchData(ctx, "launch-1")
 	if got.Claims.Subject != "updated" {

@@ -65,7 +65,7 @@ func TestAudience_MarshalJSON(t *testing.T) {
 // ── LaunchData helpers ────────────────────────────────────────────────────────
 
 func TestLaunchData_HasAGS_True(t *testing.T) {
-	ld := &lti.LaunchData{
+	ld := &lti.Launch{
 		Claims: &lti.LTIClaims{
 			AGS: &lti.AGSClaim{Lineitems: "https://platform.example.com/lineitems"},
 		},
@@ -76,7 +76,7 @@ func TestLaunchData_HasAGS_True(t *testing.T) {
 }
 
 func TestLaunchData_HasAGS_False_WhenNil(t *testing.T) {
-	ld := &lti.LaunchData{Claims: &lti.LTIClaims{}}
+	ld := &lti.Launch{Claims: &lti.LTIClaims{}}
 	if ld.HasAGS() {
 		t.Error("HasAGS must return false when AGS claim is nil")
 	}
@@ -85,7 +85,7 @@ func TestLaunchData_HasAGS_False_WhenNil(t *testing.T) {
 // HasAGS must also return true when only the single lineitem URL is set (no lineitems container).
 // This is a valid AGS scenario for resource-link-scoped launches.
 func TestLaunchData_HasAGS_True_WhenOnlyLineitemSet(t *testing.T) {
-	ld := &lti.LaunchData{
+	ld := &lti.Launch{
 		Claims: &lti.LTIClaims{
 			AGS: &lti.AGSClaim{Lineitem: "https://platform.example.com/lineitems/1"},
 		},
@@ -96,7 +96,7 @@ func TestLaunchData_HasAGS_True_WhenOnlyLineitemSet(t *testing.T) {
 }
 
 func TestLaunchData_HasNRPS_True(t *testing.T) {
-	ld := &lti.LaunchData{
+	ld := &lti.Launch{
 		Claims: &lti.LTIClaims{
 			NRPS: &lti.NRPSClaim{ContextMembershipsURL: "https://platform.example.com/memberships"},
 		},
@@ -107,14 +107,14 @@ func TestLaunchData_HasNRPS_True(t *testing.T) {
 }
 
 func TestLaunchData_HasNRPS_False_WhenNil(t *testing.T) {
-	ld := &lti.LaunchData{Claims: &lti.LTIClaims{}}
+	ld := &lti.Launch{Claims: &lti.LTIClaims{}}
 	if ld.HasNRPS() {
 		t.Error("HasNRPS must return false when NRPS claim is nil")
 	}
 }
 
 func TestLaunchData_HasDeepLinking_True(t *testing.T) {
-	ld := &lti.LaunchData{
+	ld := &lti.Launch{
 		Claims: &lti.LTIClaims{
 			DeepLinkingSettings: &lti.DeepLinkingSettings{
 				DeepLinkReturnURL: "https://platform.example.com/dl-return",
@@ -127,7 +127,7 @@ func TestLaunchData_HasDeepLinking_True(t *testing.T) {
 }
 
 func TestLaunchData_IsResourceLaunch(t *testing.T) {
-	ld := &lti.LaunchData{Claims: &lti.LTIClaims{MessageType: lti.MessageTypeResourceLink}}
+	ld := &lti.Launch{Claims: &lti.LTIClaims{MessageType: lti.MessageTypeResourceLink}}
 	if !ld.IsResourceLaunch() {
 		t.Error("IsResourceLaunch must return true for LtiResourceLinkRequest")
 	}
@@ -137,7 +137,7 @@ func TestLaunchData_IsResourceLaunch(t *testing.T) {
 }
 
 func TestLaunchData_IsDeepLinkLaunch(t *testing.T) {
-	ld := &lti.LaunchData{Claims: &lti.LTIClaims{MessageType: lti.MessageTypeDeepLinking}}
+	ld := &lti.Launch{Claims: &lti.LTIClaims{MessageType: lti.MessageTypeDeepLinking}}
 	if !ld.IsDeepLinkLaunch() {
 		t.Error("IsDeepLinkLaunch must return true for LtiDeepLinkingRequest")
 	}
@@ -170,8 +170,8 @@ func TestMemoryNonceStore_NonceIsConsumed(t *testing.T) {
 	s := lti.NewMemoryNonceStore()
 	ctx := context.Background()
 
-	s.StoreNonce(ctx, "nonce-once")       //nolint:errcheck
-	s.CheckNonce(ctx, "nonce-once")       //nolint:errcheck
+	s.StoreNonce(ctx, "nonce-once") //nolint:errcheck
+	s.CheckNonce(ctx, "nonce-once") //nolint:errcheck
 	ok, _ := s.CheckNonce(ctx, "nonce-once")
 	if ok {
 		t.Error("CheckNonce must return false on second use (nonce replay)")
@@ -196,7 +196,7 @@ func TestMemoryNonceStore_UnknownNonce(t *testing.T) {
 func TestMemoryLaunchDataStore_CacheAndGet(t *testing.T) {
 	store := lti.NewMemoryLaunchDataStore()
 	ctx := context.Background()
-	ld := &lti.LaunchData{
+	ld := &lti.Launch{
 		LaunchID: "launch-42",
 		Claims:   &lti.LTIClaims{Subject: "user-1"},
 	}

@@ -53,7 +53,7 @@ func newConn(t *testing.T, tokenURL string) *connector.Connector {
 // AGS spec: NewFromLaunch must return ErrAGSNotAvailable when the launch has no AGS claim.
 func TestAGS_NewFromLaunch_NoAGSClaim_ReturnsError(t *testing.T) {
 	key := ltitest.NewKey(t)
-	ld := &lti.LaunchData{
+	ld := &lti.Launch{
 		LaunchID:     "launch-1",
 		Registration: &lti.Registration{ToolPrivateKey: key},
 		Claims:       &lti.LTIClaims{},
@@ -74,7 +74,7 @@ func TestAGS_NewFromLaunch_WithAGSClaim_Succeeds(t *testing.T) {
 		ToolPrivateKey: key,
 		KID:            "tool-key-1",
 	}
-	ld := &lti.LaunchData{
+	ld := &lti.Launch{
 		LaunchID:     "launch-1",
 		Registration: reg,
 		Claims: &lti.LTIClaims{
@@ -867,4 +867,60 @@ func TestAGS_Request_AttachesBearerToken(t *testing.T) {
 // svcURL is a helper to construct a placeholder URL for lineitem IDs in tests.
 func svcURL(path string) string {
 	return "https://platform.example.com" + path
+}
+
+// ── appendPathSegment (query-string preservation) ─────────────────────────────
+
+// AGS spec / Moodle: lineitem URLs may include query parameters (e.g. ?type_id=8).
+// SubmitScore and GetResults must append /scores and /results to the path, not the
+// query string.
+func TestAGS_SubmitScore_LineitemURLWithQueryString_PreservesQuery(t *testing.T) {
+	tokenSrv := newTokenServer(t)
+	conn := newConn(t, tokenSrv.URL)
+
+	var capturedPath string
+	var capturedQuery string
+	svcSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		capturedQuery = r.URL.RawQuery
+		w.WriteHeader(http.StatusCreated)
+	}))
+	t.Cleanup(svcSrv.Close)
+
+	lineitemURL := svcSrv.URL + "/lineitems/1?type_id=8"
+	svc := ags.New(conn, &lti.AGSClaim{Lineitem: lineitemURL})
+	_ = svc.SubmitScore(context.Background(), lineitemURL, ags.Score{})
+
+	if capturedPath != "/lineitems/1/scores" {
+		t.Errorf("path = %q, want /lineitems/1/scores", capturedPath)
+	}
+	if capturedQuery != "type_id=8" {
+		t.Errorf("query = %q, want type_id=8", capturedQuery)
+	}
+}
+
+func TestAGS_GetResults_LineitemURLWithQueryString_PreservesQuery(t *testing.T) {
+	tokenSrv := newTokenServer(t)
+	conn := newConn(t, tokenSrv.URL)
+
+	var capturedPath string
+	var capturedQuery string
+	svcSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		capturedQuery = r.URL.RawQuery
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode([]ags.Result{}) //nolint:errcheck
+	}))
+	t.Cleanup(svcSrv.Close)
+
+	lineitemURL := svcSrv.URL + "/lineitems/1?type_id=8"
+	svc := ags.New(conn, &lti.AGSClaim{Lineitem: lineitemURL})
+	_, _ = svc.GetResults(context.Background(), lineitemURL)
+
+	if capturedPath != "/lineitems/1/results" {
+		t.Errorf("path = %q, want /lineitems/1/results", capturedPath)
+	}
+	if capturedQuery != "type_id=8" {
+		t.Errorf("query = %q, want type_id=8", capturedQuery)
+	}
 }

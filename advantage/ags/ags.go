@@ -23,11 +23,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
+	"net/url"
 
 	"github.com/robertjndw/go-lti"
 	"github.com/robertjndw/go-lti/internal/connector"
 )
+
+// appendPathSegment appends segment to the path component of rawURL,
+// preserving any existing query string. This is necessary because LMS
+// platforms (e.g. Moodle) include query parameters in lineitem URLs, so
+// simple string concatenation would place the segment inside the query string.
+func appendPathSegment(rawURL, segment string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+	return u.JoinPath(segment).String(), nil
+}
 
 const (
 	contentTypeLineitem  = "application/vnd.ims.lis.v2.lineitem+json"
@@ -47,9 +59,9 @@ func New(conn *connector.Connector, endpoint *lti.AGSClaim) *Service {
 	return &Service{conn: conn, endpoint: endpoint}
 }
 
-// NewFromLaunch creates an AGS Service from a validated LaunchData.
+// NewFromLaunch creates an AGS Service from a validated *lti.Launch.
 // Returns ErrAGSNotAvailable if the launch does not include AGS claims.
-func NewFromLaunch(ld *lti.LaunchData) (*Service, error) {
+func NewFromLaunch(ld *lti.Launch) (*Service, error) {
 	if !ld.HasAGS() {
 		return nil, lti.ErrAGSNotAvailable
 	}
@@ -202,8 +214,12 @@ func (s *Service) FindOrCreateLineitem(ctx context.Context, li Lineitem) (*Linei
 
 // SubmitScore posts a Score to the platform for the given line item URL.
 func (s *Service) SubmitScore(ctx context.Context, lineitemURL string, score Score) error {
-	// Scores are posted to <lineitem_url>/scores
-	scoresURL := strings.TrimRight(lineitemURL, "/") + "/scores"
+	// Scores are posted to <lineitem_url>/scores. Use appendPathSegment so that
+	// query parameters (e.g. ?type_id=8 from Moodle) are preserved correctly.
+	scoresURL, err := appendPathSegment(lineitemURL, "scores")
+	if err != nil {
+		return fmt.Errorf("ags: invalid lineitem URL: %w", err)
+	}
 
 	body, err := json.Marshal(score)
 	if err != nil {
@@ -224,7 +240,10 @@ func (s *Service) SubmitScore(ctx context.Context, lineitemURL string, score Sco
 
 // GetResults returns all results for the given line item URL.
 func (s *Service) GetResults(ctx context.Context, lineitemURL string) ([]Result, error) {
-	resultsURL := strings.TrimRight(lineitemURL, "/") + "/results"
+	resultsURL, err := appendPathSegment(lineitemURL, "results")
+	if err != nil {
+		return nil, fmt.Errorf("ags: invalid lineitem URL: %w", err)
+	}
 
 	var all []Result
 	pageURL := resultsURL

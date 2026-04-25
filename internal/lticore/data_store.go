@@ -14,3 +14,13 @@ type Datastore interface {
 	// Return ErrDeploymentNotFound if no deployment exists.
 	FindDeployment(ctx context.Context, issuer, deploymentID string) (*Deployment, error)
 }
+
+// RegistrationWriter persists platform registrations and deployments.
+// Datastores that support dynamic registration must implement this in addition to Datastore.
+type RegistrationWriter interface {
+	// AddRegistration persists a platform Registration keyed by its issuer URL.
+	// Calling it again with the same issuer replaces the existing entry.
+	AddRegistration(ctx context.Context, reg Registration) error
+	// AddDeployment persists a Deployment for the given platform issuer.
+	AddDeployment(ctx context.Context, issuer string, dep Deployment) error
+}

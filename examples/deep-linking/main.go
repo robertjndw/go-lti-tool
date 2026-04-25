@@ -13,6 +13,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"fmt"
@@ -42,8 +43,16 @@ func main() {
 		KID:            "key-1",
 	}
 
+	store := lti.NewMemoryStore()
+	if err := store.AddRegistration(context.Background(), *reg); err != nil {
+		log.Fatalf("failed to add registration: %v", err)
+	}
+	if err := store.AddDeployment(context.Background(), reg.Issuer, lti.Deployment{DeploymentID: "your-deployment-id"}); err != nil {
+		log.Fatalf("failed to add deployment: %v", err)
+	}
+
 	tool = lti.NewTool(
-		lti.WithDataStore(lti.NewMemoryStore()),
+		lti.WithDataStore(store),
 		lti.WithKeySet(jwks.FromRegistration(reg)),
 	)
 

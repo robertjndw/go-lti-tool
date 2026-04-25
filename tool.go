@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/robertjndw/go-lti/dynreg"
 	lticore "github.com/robertjndw/go-lti/internal/lticore"
@@ -23,7 +24,7 @@ type Tool struct {
 	keySet          jwks.KeySetProvider
 }
 
-// NewTool creates a Tool with the given name and domain, pre-configured with in-memory stores and the default cookie handler.
+// NewTool creates a Tool pre-configured with in-memory stores and the default cookie handler.
 // Override any component with the With* option functions.
 func NewTool(opts ...ToolOption) *Tool {
 	t := &Tool{
@@ -39,7 +40,7 @@ func NewTool(opts ...ToolOption) *Tool {
 	return t
 }
 
-// LaunchFromContext extracts the LaunchData stored by HandleLaunch from a request context.
+// LaunchFromContext extracts the *Launch stored by HandleLaunch from a request context.
 // Returns false if the middleware was not applied or validation failed.
 func LaunchFromContext(ctx context.Context) (*Launch, bool) {
 	return launch.FromContext(ctx)
@@ -149,16 +150,21 @@ type ToolProfile struct {
 // the same store used with WithDataStore, which implements RegistrationStore
 // when using MemoryStore or a compatible backend.
 func (t *Tool) HandleDynamicRegistration(profile ToolProfile) http.Handler {
-	key, ok := t.keySet.GetPrivateKey(profile.KID) // Check that the key set contains the specified KID at startup.
+	if t.keySet == nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "JWKS not configured: use WithKeySet", http.StatusInternalServerError)
+		})
+	}
+	key, ok := t.keySet.GetPrivateKey(profile.KID)
 	if !ok {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Error(w, fmt.Sprintf("key not found for KID: %s", profile.KID), http.StatusBadRequest)
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, fmt.Sprintf("key not found for KID %q: check tool configuration", profile.KID), http.StatusInternalServerError)
 		})
 	}
 
 	redirectURIs := make([]string, len(profile.RedirectPaths))
 	for i, p := range profile.RedirectPaths {
-		redirectURIs[i] = profile.Domain + p
+		redirectURIs[i], _ = url.JoinPath(profile.Domain, p)
 	}
 
 	jwksBase := profile.Domain
@@ -166,13 +172,23 @@ func (t *Tool) HandleDynamicRegistration(profile ToolProfile) http.Handler {
 		jwksBase = profile.JWKSBaseURL
 	}
 
+	// ToolDomain must be a bare hostname (no scheme/path) per the LTI DR spec.
+	toolDomain := profile.Domain
+	if u, err := url.Parse(profile.Domain); err == nil && u.Host != "" {
+		toolDomain = u.Host
+	}
+
+	jwksURI, _ := url.JoinPath(jwksBase, profile.JWKSPath)
+	loginURI, _ := url.JoinPath(profile.Domain, profile.LoginPath)
+	targetURI, _ := url.JoinPath(profile.Domain, profile.TargetLinkPath)
+
 	cfg := dynreg.DynRegConfig{
 		ToolName:                     profile.Name,
-		ToolDomain:                   profile.Domain,
+		ToolDomain:                   toolDomain,
 		RegistrationStore:            t.dataStore, // Must be set by caller to persist the registration
-		InitiateLoginUri:             fmt.Sprintf("%s%s", profile.Domain, profile.LoginPath),
-		JWKSUri:                      fmt.Sprintf("%s%s", jwksBase, profile.JWKSPath),
-		TargetLinkUri:                fmt.Sprintf("%s%s", profile.Domain, profile.TargetLinkPath),
+		InitiateLoginUri:             loginURI,
+		JWKSUri:                      jwksURI,
+		TargetLinkUri:                targetURI,
 		RedirectURIs:                 redirectURIs,
 		AllowInsecureOpenIDConfigURL: profile.AllowInsecureOpenIDConfigURL,
 

@@ -41,7 +41,7 @@ func New(reg *lti.Registration, deploymentID string, settings *lti.DeepLinkingSe
 	}
 }
 
-// NewFromLaunch creates a Builder from a validated LaunchData.
+// NewFromLaunch creates a Builder from a validated *lti.Launch.
 // Returns ErrDeepLinkingNotAvailable if the launch is not a deep linking request.
 func NewFromLaunch(ld *lti.Launch) (*Builder, error) {
 	if !ld.HasDeepLinking() {

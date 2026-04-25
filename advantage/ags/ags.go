@@ -59,7 +59,7 @@ func New(conn *connector.Connector, endpoint *lti.AGSClaim) *Service {
 	return &Service{conn: conn, endpoint: endpoint}
 }
 
-// NewFromLaunch creates an AGS Service from a validated LaunchData.
+// NewFromLaunch creates an AGS Service from a validated *lti.Launch.
 // Returns ErrAGSNotAvailable if the launch does not include AGS claims.
 func NewFromLaunch(ld *lti.Launch) (*Service, error) {
 	if !ld.HasAGS() {

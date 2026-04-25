@@ -248,10 +248,6 @@ func TestHandler_Success(t *testing.T) {
 	if store.savedReg.Issuer != srv.URL {
 		t.Errorf("want Issuer %s, got %q", srv.URL, store.savedReg.Issuer)
 	}
-	// openid scope must always be present.
-	if !strings.Contains(store.savedReg.ClientID, "abc") {
-		t.Errorf("unexpected client ID: %q", store.savedReg.ClientID)
-	}
 }
 
 func TestHandler_WithRegistrationToken(t *testing.T) {

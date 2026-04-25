@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"math/big"
+	"sync"
 
 	"github.com/robertjndw/go-lti/internal/lticore"
 )
@@ -37,7 +38,7 @@ type jwksDocument struct {
 // KeySet holds one or more RSA private keys and can serve the corresponding
 // public keys as a JWKS endpoint.
 type KeySet struct {
-	// keys maps KID → RSA private key.
+	mu   sync.RWMutex
 	keys map[string]*rsa.PrivateKey
 }
 
@@ -55,17 +56,26 @@ func FromRegistration(reg *lticore.Registration) *KeySet {
 
 // AddKey adds a new RSA private key to the KeySet with the given KID.
 func (ks *KeySet) AddKey(kid string, priv *rsa.PrivateKey) {
+	ks.mu.Lock()
+	defer ks.mu.Unlock()
+	if ks.keys == nil {
+		ks.keys = make(map[string]*rsa.PrivateKey)
+	}
 	ks.keys[kid] = priv
 }
 
 // GetPrivateKey retrieves the RSA private key for the given KID, if it exists.
 func (ks *KeySet) GetPrivateKey(kid string) (*rsa.PrivateKey, bool) {
+	ks.mu.RLock()
+	defer ks.mu.RUnlock()
 	priv, ok := ks.keys[kid]
 	return priv, ok
 }
 
 // PublicJWKS encodes the tool's public key set as a JSON JWKS document.
 func (ks *KeySet) PublicJWKS() ([]byte, error) {
+	ks.mu.RLock()
+	defer ks.mu.RUnlock()
 	doc := jwksDocument{}
 	for kid, priv := range ks.keys {
 		pub := &priv.PublicKey

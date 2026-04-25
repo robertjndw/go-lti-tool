@@ -19,7 +19,6 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"fmt"
@@ -249,7 +248,7 @@ func (s *server) handleDeepLinkSubmit(w http.ResponseWriter, r *http.Request) {
 	launchID := r.FormValue("launch_id")
 	contentType := r.FormValue("content_type")
 
-	ld, err := s.tool.GetLaunch(context.Background(), launchID)
+	ld, err := s.tool.GetLaunch(r.Context(), launchID)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("launch not found: %v", err), http.StatusBadRequest)
 		return

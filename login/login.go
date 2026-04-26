@@ -9,6 +9,7 @@ package login
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 
@@ -43,7 +44,8 @@ func Handler(cfg Config) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		redirectURL, cookies, err := HandleLogin(r.Context(), cfg, r)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("LTI login error: %v", err), http.StatusBadRequest)
+			log.Printf("lti/login: %v", err)
+			http.Error(w, "login initiation failed", http.StatusBadRequest)
 			return
 		}
 		for _, c := range cookies {
@@ -51,15 +53,6 @@ func Handler(cfg Config) http.Handler {
 		}
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 	})
-}
-
-// LoginResult contains the redirect URL and cookies produced by a login initiation.
-type LoginResult struct {
-	// RedirectURL is the platform OIDC authorization URL the user should be sent to.
-	RedirectURL string
-
-	// Cookies are the cookies that must be set on the response before redirecting.
-	Cookies []*http.Cookie
 }
 
 // HandleLogin processes a login initiation request and returns the redirect URL
@@ -93,7 +86,7 @@ func HandleLogin(ctx context.Context, cfg Config, r *http.Request) (redirectURL 
 
 	// If the request supplies a client_id, verify it matches the registration.
 	if clientID != "" && clientID != reg.ClientID {
-		return "", nil, fmt.Errorf("lti/login: client_id mismatch: got %q, want %q", clientID, reg.ClientID)
+		return "", nil, fmt.Errorf("lti/login: client_id mismatch")
 	}
 
 	state, err := randutil.Token(32)
@@ -117,7 +110,9 @@ func HandleLogin(ctx context.Context, cfg Config, r *http.Request) (redirectURL 
 	var cookieList []*http.Cookie
 	// We collect cookies by using a temporary response writer that captures Set-Cookie headers.
 	recorder := &cookieRecorder{}
-	ch.SetCookie(recorder, cookieName, state, 600) // 10-minute TTL
+	if err := ch.SetCookie(recorder, cookieName, state, 600); err != nil { // 10-minute TTL
+		return "", nil, fmt.Errorf("lti/login: failed to set state cookie: %w", err)
+	}
 	recorder.Flush()
 	cookieList = append(cookieList, recorder.cookies...)
 
@@ -160,8 +155,8 @@ func (cr *cookieRecorder) Header() http.Header {
 	}
 	return cr.header
 }
-func (cr *cookieRecorder) Write([]byte) (int, error)      { return 0, nil }
-func (cr *cookieRecorder) WriteHeader(int)                 {}
+func (cr *cookieRecorder) Write([]byte) (int, error) { return 0, nil }
+func (cr *cookieRecorder) WriteHeader(int)            {}
 func (cr *cookieRecorder) Flush() {
 	for _, line := range cr.header["Set-Cookie"] {
 		if c, err := http.ParseSetCookie(line); err == nil {

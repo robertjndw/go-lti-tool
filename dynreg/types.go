@@ -1,11 +1,3 @@
-// Package dynreg implements the LTI Dynamic Registration flow (v1.0).
-//
-// The flow is browser-mediated: a platform opens the tool's registration
-// endpoint in an iframe or new tab, the tool fetches the platform's OpenID
-// Provider Configuration, POSTs a client registration request, and finally
-// sends an org.imsglobal.lti.close postMessage to signal completion.
-//
-// Spec: https://www.imsglobal.org/spec/lti-dr/v1p0
 package dynreg
 
 // OpenIDConfiguration represents the OpenID Provider Configuration returned
@@ -14,7 +6,7 @@ type OpenIDConfiguration struct {
 	Issuer                                     string             `json:"issuer"`
 	AuthorizationEndpoint                      string             `json:"authorization_endpoint"`
 	RegistrationEndpoint                       string             `json:"registration_endpoint"`
-	JWKSUri                                    string             `json:"jwks_uri"`
+	JWKSURL                                    string             `json:"jwks_uri"`
 	TokenEndpoint                              string             `json:"token_endpoint"`
 	TokenEndpointAuthMethodsSupported          []string           `json:"token_endpoint_auth_methods_supported"`
 	TokenEndpointAuthSigningAlgValuesSupported []string           `json:"token_endpoint_auth_signing_alg_values_supported"`
@@ -52,7 +44,7 @@ type ClientRegistrationRequest struct {
 	RedirectURIs            []string       `json:"redirect_uris"`
 	InitiateLoginURI        string         `json:"initiate_login_uri"`
 	ClientName              string         `json:"client_name"`
-	JWKSUri                 string         `json:"jwks_uri"`
+	JWKSURL                 string         `json:"jwks_uri"`
 	TokenEndpointAuthMethod string         `json:"token_endpoint_auth_method"`
 	Scope                   string         `json:"scope"`
 	LogoURI                 string         `json:"logo_uri,omitempty"`
@@ -101,7 +93,7 @@ type ClientRegistrationResponse struct {
 	RedirectURIs            []string       `json:"redirect_uris"`
 	InitiateLoginURI        string         `json:"initiate_login_uri"`
 	ClientName              string         `json:"client_name"`
-	JWKSUri                 string         `json:"jwks_uri"`
+	JWKSURL                 string         `json:"jwks_uri"`
 	TokenEndpointAuthMethod string         `json:"token_endpoint_auth_method"`
 	Scope                   string         `json:"scope"`
 	// RegistrationClientURI and RegistrationAccessToken are present when the

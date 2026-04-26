@@ -1,3 +1,11 @@
+// Package dynreg implements the LTI Dynamic Registration flow (v1.0).
+//
+// The flow is browser-mediated: a platform opens the tool's registration
+// endpoint in an iframe or new tab, the tool fetches the platform's OpenID
+// Provider Configuration, POSTs a client registration request, and finally
+// sends an org.imsglobal.lti.close postMessage to signal completion.
+//
+// Spec: https://www.imsglobal.org/spec/lti-dr/v1p0
 package dynreg
 
 import (
@@ -8,12 +16,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
 
 	lticore "github.com/robertjndw/go-lti/internal/lticore"
 )
+
+// maxResponseBodyBytes limits the size of HTTP response bodies read from the platform.
+const maxResponseBodyBytes = 1 << 20 // 1 MiB
 
 // Sentinel errors.
 var (
@@ -41,10 +53,6 @@ var (
 
 // DynRegConfig holds all dependencies and tool-identity information needed for the
 // dynamic registration flow.
-//
-// The dependency fields (RegistrationStore, ToolKey, KID, HTTPClient) parallel
-// those in login.DynRegConfig and launch.DynRegConfig. The remaining fields describe the
-// tool to the platform and are embedded in the registration request.
 type DynRegConfig struct {
 	// RegistrationStore persists the platform Registration (and optional
 	// Deployment) produced by a successful registration. If nil, the result is
@@ -58,7 +66,7 @@ type DynRegConfig struct {
 	ToolKey *rsa.PrivateKey
 
 	// KID identifies ToolKey in the tool's JWKS. Must match a key served at
-	// JWKSUri. Ignored when ToolKey is nil.
+	// JWKSURL. Ignored when ToolKey is nil.
 	KID string
 
 	// HTTPClient is used for outbound requests to the platform.
@@ -79,17 +87,17 @@ type DynRegConfig struct {
 	// without scheme or path.
 	ToolDomain string
 
-	// JWKSUri is the URL where the tool serves its public JWKS.
-	JWKSUri string
+	// JWKSURL is the URL where the tool serves its public JWKS.
+	JWKSURL string
 
-	// InitiateLoginUri is the URL the platform calls to begin an OIDC launch.
-	InitiateLoginUri string
+	// InitiateLoginURL is the URL the platform calls to begin an OIDC launch.
+	InitiateLoginURL string
 
 	// RedirectURIs lists the post-launch callback URLs accepted by the tool.
 	RedirectURIs []string
 
-	// TargetLinkUri is the default launch URL when no message-specific URI is set.
-	TargetLinkUri string
+	// TargetLinkURL is the default launch URL when no message-specific URI is set.
+	TargetLinkURL string
 
 	// Claims lists the OIDC / LTI claims the tool requires
 	// (e.g. "sub", "email", "name").
@@ -173,11 +181,21 @@ func Handler(cfg DynRegConfig) http.Handler {
 
 		_, err := Register(r.Context(), cfg, openidConfigURL, registrationToken)
 		if err != nil {
+			log.Printf("lti/dynreg: %v", err)
 			status := http.StatusBadGateway
+			// Surface only the top-level sentinel message; the full error chain
+			// may contain platform URLs or internal details.
+			msg := ErrRegistrationFailed.Error()
+			for _, sentinel := range []error{ErrMissingOpenIDConfigURL, ErrInvalidOpenIDConfigURL, ErrDomainMismatch, ErrOpenIDConfigFetch, ErrRegistrationFailed} {
+				if errors.Is(err, sentinel) {
+					msg = sentinel.Error()
+					break
+				}
+			}
 			if errors.Is(err, ErrMissingOpenIDConfigURL) || errors.Is(err, ErrInvalidOpenIDConfigURL) || errors.Is(err, ErrDomainMismatch) {
 				status = http.StatusBadRequest
 			}
-			http.Error(w, err.Error(), status)
+			http.Error(w, msg, status)
 			return
 		}
 
@@ -205,12 +223,18 @@ func Register(ctx context.Context, cfg DynRegConfig, openidConfigURL, registrati
 
 	openidConfig, err := fetchOpenIDConfig(ctx, client, openidConfigURL)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrOpenIDConfigFetch, err)
+		return nil, fmt.Errorf("%w: %w", ErrOpenIDConfigFetch, err)
 	}
 
 	// Guard against impersonation: the URL we fetched must be on the same host
 	// as the issuer declared inside the document.
 	if err := validateDomain(openidConfigURL, openidConfig.Issuer); err != nil {
+		return nil, err
+	}
+
+	// Validate that URLs extracted from the OpenID configuration use HTTPS
+	// (unless insecure mode is explicitly allowed for local development).
+	if err := validatePlatformURLs(openidConfig, cfg.AllowInsecureOpenIDConfigURL); err != nil {
 		return nil, err
 	}
 
@@ -242,7 +266,7 @@ func buildResult(openidConfig *OpenIDConfiguration, resp *ClientRegistrationResp
 	reg := &lticore.Registration{
 		Issuer:         openidConfig.Issuer,
 		ClientID:       resp.ClientID,
-		KeySetURL:      openidConfig.JWKSUri,
+		KeySetURL:      openidConfig.JWKSURL,
 		AuthTokenURL:   openidConfig.TokenEndpoint,
 		AuthLoginURL:   openidConfig.AuthorizationEndpoint,
 		AuthServer:     openidConfig.AuthorizationServer,
@@ -265,9 +289,9 @@ func (cfg *DynRegConfig) buildRequest() *ClientRegistrationRequest {
 		GrantTypes:              []string{"client_credentials", "implicit"},
 		ResponseTypes:           []string{"id_token"},
 		RedirectURIs:            cfg.RedirectURIs,
-		InitiateLoginURI:        cfg.InitiateLoginUri,
+		InitiateLoginURI:        cfg.InitiateLoginURL,
 		ClientName:              cfg.ToolName,
-		JWKSUri:                 cfg.JWKSUri,
+		JWKSURL:                 cfg.JWKSURL,
 		TokenEndpointAuthMethod: "private_key_jwt",
 		Scope:                   strings.Join(cfg.scopes(), " "),
 		LogoURI:                 cfg.LogoURI,
@@ -278,7 +302,7 @@ func (cfg *DynRegConfig) buildRequest() *ClientRegistrationRequest {
 		LTIToolConfiguration: &LTIToolConfig{
 			Domain:           cfg.ToolDomain,
 			SecondaryDomains: cfg.SecondaryDomains,
-			TargetLinkURI:    cfg.TargetLinkUri,
+			TargetLinkURI:    cfg.TargetLinkURL,
 			CustomParameters: cfg.CustomParameters,
 			Description:      cfg.Description,
 			Claims:           cfg.Claims,
@@ -323,6 +347,30 @@ func validateOpenIDConfigURL(rawURL string, allowInsecure bool) error {
 	return nil
 }
 
+// validatePlatformURLs checks that URLs extracted from the platform's OpenID
+// configuration use HTTPS. This prevents a malicious platform from advertising
+// http:// endpoints and intercepting tool traffic.
+func validatePlatformURLs(cfg *OpenIDConfiguration, allowInsecure bool) error {
+	if allowInsecure {
+		return nil
+	}
+	for name, rawURL := range map[string]string{
+		"registration_endpoint":  cfg.RegistrationEndpoint,
+		"jwks_uri":               cfg.JWKSURL,
+		"token_endpoint":         cfg.TokenEndpoint,
+		"authorization_endpoint": cfg.AuthorizationEndpoint,
+	} {
+		if rawURL == "" {
+			continue
+		}
+		u, err := url.Parse(rawURL)
+		if err != nil || u.Scheme != "https" {
+			return fmt.Errorf("%w: platform %s must use https", ErrInvalidOpenIDConfigURL, name)
+		}
+	}
+	return nil
+}
+
 // validateDomain checks that the host of configURL exactly matches the host of
 // the issuer URL. Subdomain and TLD differences are both rejected.
 func validateDomain(configURL, issuer string) error {
@@ -360,7 +408,7 @@ func fetchOpenIDConfig(ctx context.Context, client *http.Client, rawURL string) 
 	}
 
 	var cfg OpenIDConfiguration
-	if err := json.NewDecoder(resp.Body).Decode(&cfg); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBodyBytes)).Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("decode OpenID configuration: %w", err)
 	}
 	if cfg.Issuer == "" {
@@ -369,7 +417,7 @@ func fetchOpenIDConfig(ctx context.Context, client *http.Client, rawURL string) 
 	if cfg.RegistrationEndpoint == "" {
 		return nil, errors.New("OpenID configuration missing registration_endpoint")
 	}
-	if cfg.JWKSUri == "" {
+	if cfg.JWKSURL == "" {
 		return nil, errors.New("OpenID configuration missing jwks_uri")
 	}
 	if cfg.TokenEndpoint == "" {
@@ -386,7 +434,7 @@ func fetchOpenIDConfig(ctx context.Context, client *http.Client, rawURL string) 
 func postRegistration(ctx context.Context, client *http.Client, endpoint, token string, regReq *ClientRegistrationRequest) (*ClientRegistrationResponse, error) {
 	body, err := json.Marshal(regReq)
 	if err != nil {
-		return nil, fmt.Errorf("marshal registration request: %w", err)
+		return nil, fmt.Errorf("%w: marshal registration request: %w", ErrRegistrationFailed, err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
@@ -407,13 +455,14 @@ func postRegistration(ctx context.Context, client *http.Client, endpoint, token 
 
 	// Platforms may return 200 (LTI DR spec) or 201 (RFC 7591).
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		raw, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("%w: HTTP %d: %s", ErrRegistrationFailed, resp.StatusCode, string(raw))
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
+		log.Printf("lti/dynreg: registration endpoint HTTP %d: %s", resp.StatusCode, raw)
+		return nil, fmt.Errorf("%w: HTTP %d", ErrRegistrationFailed, resp.StatusCode)
 	}
 
 	var regResp ClientRegistrationResponse
-	if err := json.NewDecoder(resp.Body).Decode(&regResp); err != nil {
-		return nil, fmt.Errorf("decode registration response: %w", err)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBodyBytes)).Decode(&regResp); err != nil {
+		return nil, fmt.Errorf("%w: decode registration response: %w", ErrRegistrationFailed, err)
 	}
 	if regResp.ClientID == "" {
 		return nil, fmt.Errorf("%w: response missing client_id", ErrRegistrationFailed)
@@ -423,6 +472,8 @@ func postRegistration(ctx context.Context, client *http.Client, endpoint, token 
 
 // closePage is returned to the browser after a successful registration.
 // The postMessage tells the platform's frame/opener that the flow is complete.
+// The wildcard target origin ('*') is required by the LTI DR spec because the
+// tool does not know the platform's origin at this point in the flow.
 const closePage = `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><title>Registration complete</title></head>

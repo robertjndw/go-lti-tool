@@ -2,6 +2,7 @@ package lti
 
 import "github.com/robertjndw/go-lti/jwks"
 
+// ToolOption is a functional option for configuring a Tool.
 type ToolOption func(*Tool)
 
 // WithDataStore sets the Datastore for the Tool.

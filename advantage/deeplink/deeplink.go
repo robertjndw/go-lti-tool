@@ -78,6 +78,10 @@ func (b *Builder) ResponseJWT(resources []Resource) (string, error) {
 		claims[lti.ClaimPrefixDL+"data"] = b.settings.Data
 	}
 
+	if b.reg.ToolPrivateKey == nil {
+		return "", fmt.Errorf("deeplink: registration has no private key")
+	}
+
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	token.Header["kid"] = b.reg.KID
 

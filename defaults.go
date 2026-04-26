@@ -116,11 +116,18 @@ func NewMemoryNonceStore() *MemoryNonceStore {
 	}
 }
 
-// StoreNonce stores the nonce with a TTL expiry.
+// StoreNonce stores the nonce with a TTL expiry. It also evicts any expired
+// entries to prevent unbounded growth under high load or adversarial input.
 func (s *MemoryNonceStore) StoreNonce(_ context.Context, nonce string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.nonces[nonce] = nonceEntry{expiresAt: time.Now().Add(s.ttl)}
+	now := time.Now()
+	for k, e := range s.nonces {
+		if now.After(e.expiresAt) {
+			delete(s.nonces, k)
+		}
+	}
+	s.nonces[nonce] = nonceEntry{expiresAt: now.Add(s.ttl)}
 	return nil
 }
 

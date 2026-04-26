@@ -26,12 +26,15 @@ import (
 	"github.com/robertjndw/go-lti/internal/randutil"
 )
 
+// maxResponseBodyBytes limits the size of HTTP response bodies read from the platform.
+const maxResponseBodyBytes = 1 << 20 // 1 MiB
+
 // Connector holds a platform Registration and manages OAuth2 access tokens for
 // LTI Advantage service calls.
 type Connector struct {
 	reg        *lti.Registration
 	httpClient *http.Client
-	mu         sync.RWMutex
+	mu         sync.Mutex
 	tokens     map[string]*tokenEntry // keyed by sorted scope string
 }
 
@@ -75,12 +78,17 @@ type tokenResponse struct {
 func (c *Connector) GetAccessToken(ctx context.Context, scopes []string) (string, error) {
 	key := scopeKey(scopes)
 
-	c.mu.RLock()
-	entry, ok := c.tokens[key]
-	c.mu.RUnlock()
+	// Hold the lock for the entire check-and-fetch to prevent concurrent goroutines
+	// from issuing redundant token requests for the same scope set.
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	if ok && time.Now().Before(entry.expiresAt) {
+	if entry, ok := c.tokens[key]; ok && time.Now().Before(entry.expiresAt) {
 		return entry.accessToken, nil
+	}
+
+	if c.reg.ToolPrivateKey == nil {
+		return "", fmt.Errorf("connector: registration has no private key")
 	}
 
 	jti, err := randutil.Token(16)
@@ -121,12 +129,17 @@ func (c *Connector) GetAccessToken(ctx context.Context, scopes []string) (string
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
 	if err != nil {
 		return "", fmt.Errorf("connector: failed to read token response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("connector: token endpoint returned %d: %s", resp.StatusCode, body)
+		// Truncate to avoid leaking large or sensitive platform error bodies.
+		excerpt := body
+		if len(excerpt) > 200 {
+			excerpt = excerpt[:200]
+		}
+		return "", fmt.Errorf("connector: token endpoint returned %d: %s", resp.StatusCode, excerpt)
 	}
 
 	var tr tokenResponse
@@ -139,12 +152,11 @@ func (c *Connector) GetAccessToken(ctx context.Context, scopes []string) (string
 		expiresIn = 3600
 	}
 	// Subtract 30 seconds to avoid using a token that is about to expire.
-	expiresAt := time.Now().Add(time.Duration(expiresIn-30) * time.Second)
+	// Clamp so that short-lived tokens (expires_in ≤ 30) still produce a positive duration.
+	safeExpiry := max(expiresIn-30, 1)
+	expiresAt := time.Now().Add(time.Duration(safeExpiry) * time.Second)
 
-	c.mu.Lock()
 	c.tokens[key] = &tokenEntry{accessToken: tr.AccessToken, expiresAt: expiresAt}
-	c.mu.Unlock()
-
 	return tr.AccessToken, nil
 }
 
@@ -221,7 +233,7 @@ func (c *Connector) Request(ctx context.Context, method, serviceURL string, body
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("connector: failed to read response body: %w", err)
 	}

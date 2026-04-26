@@ -19,7 +19,7 @@ A Go SDK for [LTI 1.3](https://www.imsglobal.org/spec/lti/v1p3) targeting tool i
 | `.../login` | OIDC login initiation handler (step 1) |
 | `.../launch` | JWT validation + launch middleware (step 2) |
 | `.../jwks` | Serve the tool's public JWKS endpoint |
-| `.../connector` | OAuth2 client credentials for service calls |
+| `.../dynreg` | LTI Dynamic Registration handler |
 | `.../advantage/ags` | Assignment & Grade Services |
 | `.../advantage/nrps` | Names & Role Provisioning Services |
 | `.../advantage/deeplink` | Deep Linking response builder |
@@ -29,54 +29,41 @@ A Go SDK for [LTI 1.3](https://www.imsglobal.org/spec/lti/v1p3) targeting tool i
 ```go
 import (
     lti "github.com/robertjndw/go-lti"
-    "github.com/robertjndw/go-lti/login"
-    "github.com/robertjndw/go-lti/launch"
     "github.com/robertjndw/go-lti/jwks"
 )
 
-// 1. Implement the Datastore interface.
-type myStore struct{}
-
-func (s *myStore) FindRegistrationByIssuer(ctx context.Context, issuer string) (*lti.Registration, error) {
-    // Look up the registration in your database.
-}
-
-func (s *myStore) FindDeployment(ctx context.Context, issuer, deploymentID string) (*lti.Deployment, error) {
-    // Verify the deployment exists.
-}
-
-// 2. Wire up the handlers.
 func main() {
+    // Load your RSA private key (see Key Management section below).
+    privateKey, _ := rsa.GenerateKey(rand.Reader, 2048) // dev only
+
     reg := &lti.Registration{
         Issuer:         "https://canvas.instructure.com",
         ClientID:       "your-client-id",
         KeySetURL:      "https://canvas.instructure.com/api/lti/security/jwks",
         AuthLoginURL:   "https://canvas.instructure.com/api/lti/authorize_redirect",
         AuthTokenURL:   "https://canvas.instructure.com/login/oauth2/token",
-        ToolPrivateKey: privateKey, // *rsa.PrivateKey
+        ToolPrivateKey: privateKey,
         KID:            "key-1",
     }
 
-    store := &myStore{}
-    nonces := lti.NewMemoryNonceStore()   // swap for Redis in production
-    launches := lti.NewMemoryLaunchDataStore()
+    store := lti.NewMemoryStore() // swap for a DB-backed store in production
+    _ = store.AddRegistration(context.Background(), *reg)
+    _ = store.AddDeployment(context.Background(), reg.Issuer, lti.Deployment{DeploymentID: "your-deployment-id"})
+
+    tool := lti.NewTool(
+        lti.WithDataStore(store),
+        lti.WithKeySet(jwks.FromRegistration(reg)),
+    )
 
     mux := http.NewServeMux()
-    mux.Handle("/oidc/login", login.Handler(login.Config{
-        Datastore:  store,
-        NonceStore: nonces,
-    }))
-    mux.Handle("/lti/launch", launch.Handler(
-        launch.Config{Datastore: store, NonceStore: nonces, LaunchStore: launches},
-        http.HandlerFunc(handleLaunch),
-    ))
-    mux.Handle("/.well-known/jwks.json", jwks.FromRegistration(reg).Handler())
+    mux.Handle("/oidc/login", tool.HandleLogin())
+    mux.Handle("/lti/launch", tool.HandleLaunch(http.HandlerFunc(handleLaunch)))
+    mux.Handle("/.well-known/jwks.json", tool.HandleJWKS())
     http.ListenAndServe(":8080", mux)
 }
 
-// 3. Use launch data in your handler.
 func handleLaunch(w http.ResponseWriter, r *http.Request) {
-    ld, _ := launch.FromContext(r.Context())
+    ld, _ := lti.LaunchFromContext(r.Context())
     fmt.Fprintf(w, "Hello, %s!", ld.Claims.Name)
 }
 ```

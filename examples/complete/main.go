@@ -60,6 +60,9 @@ func main() {
 	if err := ds.AddRegistration(context.TODO(), *reg); err != nil {
 		log.Fatalf("failed to add registration: %v", err)
 	}
+	if err := ds.AddDeployment(context.TODO(), reg.Issuer, lti.Deployment{DeploymentID: "your-deployment-id"}); err != nil {
+		log.Fatalf("failed to add deployment: %v", err)
+	}
 
 	tool := lti.NewTool(
 		lti.WithDataStore(ds),

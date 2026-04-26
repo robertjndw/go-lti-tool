@@ -241,7 +241,7 @@ func (h *SimpleCookieHandler) GetCookie(_ *http.Request, name string) (string, e
 	return v, nil
 }
 
-func (h *SimpleCookieHandler) SetCookie(w http.ResponseWriter, name, value string, maxAge int) {
+func (h *SimpleCookieHandler) SetCookie(w http.ResponseWriter, name, value string, maxAge int) error {
 	h.jar[name] = value
 	if w != nil {
 		http.SetCookie(w, &http.Cookie{
@@ -251,6 +251,12 @@ func (h *SimpleCookieHandler) SetCookie(w http.ResponseWriter, name, value strin
 			Path:   "/",
 		})
 	}
+	return nil
+}
+
+func (h *SimpleCookieHandler) DeleteCookie(_ http.ResponseWriter, name string) {
+	delete(h.jar, name)
+	delete(h.jar, "LEGACY_"+name)
 }
 
 // SetRaw sets a cookie value directly (for test setup).

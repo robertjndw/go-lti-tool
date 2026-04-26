@@ -108,8 +108,10 @@ type AGSClaim struct {
 
 // NRPSClaim is the LTI Advantage Names & Role Provisioning Services endpoint descriptor.
 type NRPSClaim struct {
-	ContextMembershipsURL string   `json:"context_memberships_url"`
-	ServiceVersions       []string `json:"service_versions,omitempty"`
+	// ContextMembershipsURL is the endpoint for fetching course roster membership data.
+	ContextMembershipsURL string `json:"context_memberships_url"`
+	// ServiceVersions lists the NRPS specification versions supported by the platform.
+	ServiceVersions []string `json:"service_versions,omitempty"`
 }
 
 // DeepLinkingSettings is present in LtiDeepLinkingRequest launches.

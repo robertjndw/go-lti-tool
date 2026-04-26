@@ -455,8 +455,12 @@ func postRegistration(ctx context.Context, client *http.Client, endpoint, token 
 
 	// Platforms may return 200 (LTI DR spec) or 201 (RFC 7591).
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes))
-		log.Printf("lti/dynreg: registration endpoint HTTP %d: %s", resp.StatusCode, raw)
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBodyBytes))
+		endpointHost := ""
+		if u, err := url.Parse(endpoint); err == nil {
+			endpointHost = u.Host
+		}
+		log.Printf("lti/dynreg: registration endpoint returned unexpected status: status=%d host=%q", resp.StatusCode, endpointHost)
 		return nil, fmt.Errorf("%w: HTTP %d", ErrRegistrationFailed, resp.StatusCode)
 	}
 

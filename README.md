@@ -28,6 +28,12 @@ A Go SDK for [LTI 1.3](https://www.imsglobal.org/spec/lti/v1p3) targeting tool i
 
 ```go
 import (
+    "context"
+    "crypto/rand"
+    "crypto/rsa"
+    "fmt"
+    "net/http"
+
     lti "github.com/robertjndw/go-lti"
     "github.com/robertjndw/go-lti/jwks"
 )

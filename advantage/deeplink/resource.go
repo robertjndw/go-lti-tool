@@ -71,22 +71,31 @@ type Presentation struct {
 
 // ImageObject represents an icon or thumbnail.
 type ImageObject struct {
-	URL    string `json:"url"`
-	Width  int    `json:"width,omitempty"`
-	Height int    `json:"height,omitempty"`
+	// URL is the image source URL.
+	URL string `json:"url"`
+	// Width is the recommended pixel width of the image.
+	Width int `json:"width,omitempty"`
+	// Height is the recommended pixel height of the image.
+	Height int `json:"height,omitempty"`
 }
 
 // WindowTarget specifies properties for a new browser window.
 type WindowTarget struct {
+	// TargetName is the window name (window.open target).
 	TargetName string `json:"targetName,omitempty"`
-	Width      int    `json:"width,omitempty"`
-	Height     int    `json:"height,omitempty"`
+	// Width is the recommended pixel width of the window.
+	Width int `json:"width,omitempty"`
+	// Height is the recommended pixel height of the window.
+	Height int `json:"height,omitempty"`
+	// WindowFeatures is the feature string passed to window.open.
 	WindowFeatures string `json:"windowFeatures,omitempty"`
 }
 
 // IframeTarget specifies properties for an iframe.
 type IframeTarget struct {
-	Width  int `json:"width,omitempty"`
+	// Width is the recommended pixel width of the iframe.
+	Width int `json:"width,omitempty"`
+	// Height is the recommended pixel height of the iframe.
 	Height int `json:"height,omitempty"`
 }
 

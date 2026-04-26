@@ -20,10 +20,10 @@ func minimalConfig(t *testing.T) dynreg.DynRegConfig {
 	return dynreg.DynRegConfig{
 		ToolName:         "Test Tool",
 		ToolDomain:       "tool.example.com",
-		JWKSUri:          "https://tool.example.com/jwks",
-		InitiateLoginUri: "https://tool.example.com/login",
+		JWKSURL:          "https://tool.example.com/jwks",
+		InitiateLoginURL: "https://tool.example.com/login",
 		RedirectURIs:     []string{"https://tool.example.com/launch"},
-		TargetLinkUri:    "https://tool.example.com/launch",
+		TargetLinkURL:    "https://tool.example.com/launch",
 		Claims:           []string{"sub", "email"},
 	}
 }
@@ -40,7 +40,7 @@ func newPlatform(t *testing.T, registrationStatus int) *httptest.Server {
 				Issuer:                srv.URL,
 				AuthorizationEndpoint: srv.URL + "/auth",
 				RegistrationEndpoint:  srv.URL + "/register",
-				JWKSUri:               srv.URL + "/jwks",
+				JWKSURL:               srv.URL + "/jwks",
 				TokenEndpoint:         srv.URL + "/token",
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -66,7 +66,7 @@ func newPlatform(t *testing.T, registrationStatus int) *httptest.Server {
 				RedirectURIs:            req.RedirectURIs,
 				InitiateLoginURI:        req.InitiateLoginURI,
 				ClientName:              req.ClientName,
-				JWKSUri:                 req.JWKSUri,
+				JWKSURL:                 req.JWKSURL,
 				TokenEndpointAuthMethod: req.TokenEndpointAuthMethod,
 				Scope:                   req.Scope,
 			}
@@ -194,7 +194,7 @@ func TestHandler_DomainMismatch(t *testing.T) {
 		cfg := dynreg.OpenIDConfiguration{
 			Issuer:                "https://legit-platform.example.com",
 			RegistrationEndpoint:  "https://legit-platform.example.com/register",
-			JWKSUri:               "https://legit-platform.example.com/jwks",
+			JWKSURL:               "https://legit-platform.example.com/jwks",
 			TokenEndpoint:         "https://legit-platform.example.com/token",
 			AuthorizationEndpoint: "https://legit-platform.example.com/auth",
 		}
@@ -261,7 +261,7 @@ func TestHandler_WithRegistrationToken(t *testing.T) {
 			cfg := dynreg.OpenIDConfiguration{
 				Issuer:                "https://" + r.Host,
 				RegistrationEndpoint:  "https://" + r.Host + "/register",
-				JWKSUri:               "https://" + r.Host + "/jwks",
+				JWKSURL:               "https://" + r.Host + "/jwks",
 				TokenEndpoint:         "https://" + r.Host + "/token",
 				AuthorizationEndpoint: "https://" + r.Host + "/auth",
 			}
@@ -366,7 +366,7 @@ func TestRegister_WithDeploymentID(t *testing.T) {
 			cfg := dynreg.OpenIDConfiguration{
 				Issuer:                "https://" + r.Host,
 				RegistrationEndpoint:  "https://" + r.Host + "/register",
-				JWKSUri:               "https://" + r.Host + "/jwks",
+				JWKSURL:               "https://" + r.Host + "/jwks",
 				TokenEndpoint:         "https://" + r.Host + "/token",
 				AuthorizationEndpoint: "https://" + r.Host + "/auth",
 			}
@@ -470,7 +470,7 @@ func TestRegister_DomainMismatch(t *testing.T) {
 		cfg := dynreg.OpenIDConfiguration{
 			Issuer:                "https://legit-platform.example.com",
 			RegistrationEndpoint:  "https://legit-platform.example.com/register",
-			JWKSUri:               "https://legit-platform.example.com/jwks",
+			JWKSURL:               "https://legit-platform.example.com/jwks",
 			TokenEndpoint:         "https://legit-platform.example.com/token",
 			AuthorizationEndpoint: "https://legit-platform.example.com/auth",
 		}
@@ -500,7 +500,7 @@ func TestRequestFields(t *testing.T) {
 			cfg := dynreg.OpenIDConfiguration{
 				Issuer:                "https://" + r.Host,
 				RegistrationEndpoint:  "https://" + r.Host + "/register",
-				JWKSUri:               "https://" + r.Host + "/jwks",
+				JWKSURL:               "https://" + r.Host + "/jwks",
 				TokenEndpoint:         "https://" + r.Host + "/token",
 				AuthorizationEndpoint: "https://" + r.Host + "/auth",
 			}

@@ -104,6 +104,7 @@ func (SubmissionReviewMessageValidator) CanValidate(claims *lticore.LTIClaims) b
 	return claims.MessageType == lticore.MessageTypeSubmissionReview
 }
 
+// Validate checks LTI-specific claims for an LtiSubmissionReviewRequest.
 func (SubmissionReviewMessageValidator) Validate(claims *lticore.LTIClaims) error {
 	if err := validateVersion(lticore.MessageTypeSubmissionReview, claims); err != nil {
 		return err

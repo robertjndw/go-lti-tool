@@ -112,11 +112,16 @@ type ToolProfile struct {
 	// use http. This should stay false for production and only be enabled for
 	// local development platforms that do not expose HTTPS.
 	AllowInsecureOpenIDConfigURL bool
-	KID                          string // Key ID for the tool's signing key, used in the JWT "kid" header and JWKS "kid" field.
-	LoginPath                    string
-	JWKSPath                     string
-	RedirectPaths                []string
-	TargetLinkPath               string
+	// KID identifies the tool's signing key in the JWKS and the JWT "kid" header.
+	KID string
+	// LoginPath is the URL path for the OIDC login initiation endpoint (e.g. "/oidc/login").
+	LoginPath string
+	// JWKSPath is the URL path where the tool serves its public JWKS (e.g. "/.well-known/jwks.json").
+	JWKSPath string
+	// RedirectPaths lists the URL paths the tool accepts as post-launch redirect targets.
+	RedirectPaths []string
+	// TargetLinkPath is the default launch URL path (e.g. "/lti/launch").
+	TargetLinkPath string
 
 	// Optional placement/scope config
 	Claims           []string
@@ -219,9 +224,9 @@ func (t *Tool) HandleDynamicRegistration(profile ToolProfile) http.Handler {
 		ToolName:                     profile.Name,
 		ToolDomain:                   toolDomain,
 		RegistrationStore:            regWriter,
-		InitiateLoginUri:             loginURI,
-		JWKSUri:                      jwksURI,
-		TargetLinkUri:                targetURI,
+		InitiateLoginURL:             loginURI,
+		JWKSURL:                      jwksURI,
+		TargetLinkURL:                targetURI,
 		RedirectURIs:                 redirectURIs,
 		AllowInsecureOpenIDConfigURL: profile.AllowInsecureOpenIDConfigURL,
 

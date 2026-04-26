@@ -8,9 +8,11 @@ package launch
 import (
 	"context"
 	"crypto/rsa"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -42,9 +44,6 @@ type Config struct {
 
 	// JWKSFetchOptions are optional options passed to jwk.Fetch.
 	JWKSFetchOptions []jwk.FetchOption
-
-	// SkipNonceCheck disables nonce verification. Only use this in tests.
-	SkipNonceCheck bool
 }
 
 func (c *Config) cookieHandler() lticore.CookieHandler {
@@ -68,8 +67,14 @@ func Handler(cfg Config, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ld, err := ValidateLaunch(r.Context(), cfg, r)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("LTI launch error: %v", err), http.StatusBadRequest)
+			log.Printf("lti/launch: %v", err)
+			http.Error(w, "launch failed", http.StatusBadRequest)
 			return
+		}
+		// Delete the state cookie — it is one-time use. The nonce prevents JWT
+		// replay, but explicit deletion provides defence-in-depth against state reuse.
+		if state := r.FormValue("state"); state != "" {
+			cfg.cookieHandler().DeleteCookie(w, "lti1p3_"+state)
 		}
 		ctx := context.WithValue(r.Context(), contextKey{}, ld)
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -86,6 +91,9 @@ func FromContext(ctx context.Context) (*lticore.Launch, bool) {
 // FromCache reconstructs a *Launch from the launch store using a launch ID.
 // Useful for restoring launch context in subsequent requests (e.g. AJAX calls).
 func FromCache(ctx context.Context, cfg Config, launchID string) (*lticore.Launch, error) {
+	if cfg.LaunchStore == nil {
+		return nil, fmt.Errorf("lti/launch: LaunchStore not configured")
+	}
 	return cfg.LaunchStore.GetLaunchData(ctx, launchID)
 }
 
@@ -132,14 +140,12 @@ func ValidateLaunch(ctx context.Context, cfg Config, r *http.Request) (*lticore.
 	}
 
 	// Step 6: Validate the nonce.
-	if !cfg.SkipNonceCheck {
-		ok, err := cfg.NonceStore.CheckNonce(ctx, claims.Nonce)
-		if err != nil {
-			return nil, fmt.Errorf("lti/launch: nonce check failed: %w", err)
-		}
-		if !ok {
-			return nil, lticore.ErrInvalidNonce
-		}
+	ok, err := cfg.NonceStore.CheckNonce(ctx, claims.Nonce)
+	if err != nil {
+		return nil, fmt.Errorf("lti/launch: nonce check failed: %w", err)
+	}
+	if !ok {
+		return nil, lticore.ErrInvalidNonce
 	}
 
 	// Step 7: Look up the deployment.
@@ -175,7 +181,8 @@ func ValidateLaunch(ctx context.Context, cfg Config, r *http.Request) (*lticore.
 	return ld, nil
 }
 
-// validateState checks that the state parameter matches the state cookie.
+// validateState checks that the state parameter matches the state cookie using
+// a constant-time comparison to prevent timing side-channel attacks.
 func validateState(r *http.Request, state string, ch lticore.CookieHandler) error {
 	if state == "" {
 		return lticore.ErrInvalidState
@@ -183,9 +190,9 @@ func validateState(r *http.Request, state string, ch lticore.CookieHandler) erro
 	cookieName := "lti1p3_" + state
 	cookieValue, err := ch.GetCookie(r, cookieName)
 	if err != nil {
-		return fmt.Errorf("lti/launch: %w: %v", lticore.ErrInvalidState, err)
+		return fmt.Errorf("lti/launch: %w: %w", lticore.ErrInvalidState, err)
 	}
-	if cookieValue != state {
+	if subtle.ConstantTimeCompare([]byte(cookieValue), []byte(state)) != 1 {
 		return lticore.ErrInvalidState
 	}
 	return nil
@@ -234,7 +241,7 @@ func verifyJWT(ctx context.Context, tokenStr string, reg *lticore.Registration, 
 	// Fetch the platform's JWKS.
 	keySet, err := jwk.Fetch(ctx, reg.KeySetURL, fetchOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch platform JWKS from %q: %w", reg.KeySetURL, err)
+		return nil, fmt.Errorf("failed to fetch platform JWKS: %w", err)
 	}
 
 	// Find the key that matches the JWT's KID.
@@ -293,10 +300,10 @@ func verifyJWT(ctx context.Context, tokenStr string, reg *lticore.Registration, 
 // validateOIDCClaims checks the standard OIDC claims against the registration.
 func validateOIDCClaims(claims *lticore.LTIClaims, reg *lticore.Registration) error {
 	if claims.Issuer != reg.Issuer {
-		return fmt.Errorf("%w: iss %q does not match registration issuer %q", lticore.ErrInvalidClaims, claims.Issuer, reg.Issuer)
+		return fmt.Errorf("%w: iss does not match registration", lticore.ErrInvalidClaims)
 	}
 	if !claims.Audience.Contains(reg.ClientID) {
-		return fmt.Errorf("%w: aud does not contain client_id %q", lticore.ErrInvalidClaims, reg.ClientID)
+		return fmt.Errorf("%w: aud does not contain client_id", lticore.ErrInvalidClaims)
 	}
 	if claims.IssuedAt == 0 {
 		return fmt.Errorf("%w: iat claim is missing", lticore.ErrMissingClaim)

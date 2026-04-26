@@ -559,6 +559,32 @@ func TestLaunch_Handler_InjectsContext(t *testing.T) {
 	}
 }
 
+// Handler must expire the one-time state cookie on a successful launch to prevent
+// CSRF state reuse (defence-in-depth beyond nonce replay protection).
+func TestLaunch_Handler_DeletesStateCookieOnSuccess(t *testing.T) {
+	f := newFixture(t)
+	nonce := "nonce-delcookie"
+	f.storeNonce(t, nonce)
+	state := "state-delcookie"
+	f.setStateCookie(state)
+	token := f.validToken(t, nonce, nil)
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
+	req := ltitest.MakeLaunchRequest(t, state, token)
+	w := httptest.NewRecorder()
+	launch.Handler(f.cfg(), next).ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// The state cookie must be absent from the SimpleCookieHandler jar after
+	// Handler calls DeleteCookie.
+	if _, err := f.cookies.GetCookie(req, "lti1p3_"+state); err == nil {
+		t.Error("state cookie must be deleted from cookie jar after successful launch")
+	}
+}
+
 // Handler must return 400 and not call next on validation failure.
 func TestLaunch_Handler_Returns400OnError(t *testing.T) {
 	f := newFixture(t)

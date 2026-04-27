@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/robertjndw/go-lti/dynreg"
-	lticore "github.com/robertjndw/go-lti/internal/lticore"
+	"github.com/robertjndw/go-lti-tool/dynreg"
+	lticore "github.com/robertjndw/go-lti-tool/internal/lticore"
 )
 
 // minimalConfig returns a Config with the required fields populated.

@@ -12,9 +12,9 @@ import (
 	"testing"
 
 	"github.com/golang-jwt/jwt/v5"
-	lti "github.com/robertjndw/go-lti"
-	"github.com/robertjndw/go-lti/internal/connector"
-	"github.com/robertjndw/go-lti/internal/ltitest"
+	lti "github.com/robertjndw/go-lti-tool"
+	"github.com/robertjndw/go-lti-tool/internal/connector"
+	"github.com/robertjndw/go-lti-tool/internal/ltitest"
 )
 
 // tokenServerConfig controls what the mock token endpoint returns.

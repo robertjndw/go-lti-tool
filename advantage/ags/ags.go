@@ -25,8 +25,8 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/robertjndw/go-lti"
-	"github.com/robertjndw/go-lti/internal/connector"
+	"github.com/robertjndw/go-lti-tool"
+	"github.com/robertjndw/go-lti-tool/internal/connector"
 )
 
 // appendPathSegment appends segment to the path component of rawURL,

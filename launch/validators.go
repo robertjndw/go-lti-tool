@@ -3,7 +3,7 @@ package launch
 import (
 	"fmt"
 
-	lticore "github.com/robertjndw/go-lti/internal/lticore"
+	lticore "github.com/robertjndw/go-lti-tool/internal/lticore"
 )
 
 // MessageValidator validates the LTI-specific claims for a particular message type.

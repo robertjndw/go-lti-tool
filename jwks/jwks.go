@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"math/big"
 
-	"github.com/robertjndw/go-lti/internal/lticore"
+	"github.com/robertjndw/go-lti-tool/internal/lticore"
 )
 
 // KeySetProvider serves the tool's public JWKS.

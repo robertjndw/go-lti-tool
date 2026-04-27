@@ -3,8 +3,8 @@ package launch_test
 import (
 	"testing"
 
-	lti "github.com/robertjndw/go-lti"
-	"github.com/robertjndw/go-lti/launch"
+	lti "github.com/robertjndw/go-lti-tool"
+	"github.com/robertjndw/go-lti-tool/launch"
 )
 
 // minimalResourceClaims returns the minimal valid LTI claims for a resource link request.
@@ -219,10 +219,10 @@ func TestSubmissionReviewValidator_CanValidate(t *testing.T) {
 func TestSubmissionReviewValidator_Valid_Passes(t *testing.T) {
 	v := launch.SubmissionReviewMessageValidator{}
 	c := &lti.LTIClaims{
-		Subject:     "user-1",
-		MessageType: lti.MessageTypeSubmissionReview,
-		Version:     lti.LTIVersion,
-		Roles:       []string{lti.RoleInstructor},
+		Subject:      "user-1",
+		MessageType:  lti.MessageTypeSubmissionReview,
+		Version:      lti.LTIVersion,
+		Roles:        []string{lti.RoleInstructor},
 		ResourceLink: &lti.ResourceLink{ID: "link-1"},
 	}
 	if err := v.Validate(c); err != nil {
@@ -234,10 +234,10 @@ func TestSubmissionReviewValidator_Valid_Passes(t *testing.T) {
 func TestSubmissionReviewValidator_MissingResourceLink_Fails(t *testing.T) {
 	v := launch.SubmissionReviewMessageValidator{}
 	c := &lti.LTIClaims{
-		Subject:     "user-1",
-		MessageType: lti.MessageTypeSubmissionReview,
-		Version:     lti.LTIVersion,
-		Roles:       []string{},
+		Subject:      "user-1",
+		MessageType:  lti.MessageTypeSubmissionReview,
+		Version:      lti.LTIVersion,
+		Roles:        []string{},
 		ResourceLink: nil,
 	}
 	if err := v.Validate(c); err == nil {

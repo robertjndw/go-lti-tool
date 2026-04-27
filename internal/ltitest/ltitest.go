@@ -1,5 +1,5 @@
 // Package ltitest provides shared test helpers for the go-lti test suite.
-// It is an internal package; only tests within github.com/robertjndw/go-lti may import it.
+// It is an internal package; only tests within github.com/robertjndw/go-lti-tool may import it.
 package ltitest
 
 import (
@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	lti "github.com/robertjndw/go-lti"
-	"github.com/robertjndw/go-lti/internal/lticore"
+	lti "github.com/robertjndw/go-lti-tool"
+	"github.com/robertjndw/go-lti-tool/internal/lticore"
 )
 
 // NewKey generates a 2048-bit RSA key pair for use in tests.

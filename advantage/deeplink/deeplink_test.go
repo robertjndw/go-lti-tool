@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	lti "github.com/robertjndw/go-lti"
-	"github.com/robertjndw/go-lti/advantage/deeplink"
-	"github.com/robertjndw/go-lti/internal/ltitest"
+	lti "github.com/robertjndw/go-lti-tool"
+	"github.com/robertjndw/go-lti-tool/advantage/deeplink"
+	"github.com/robertjndw/go-lti-tool/internal/ltitest"
 )
 
 // newBuilder creates a Builder backed by a test registration and deep linking settings.

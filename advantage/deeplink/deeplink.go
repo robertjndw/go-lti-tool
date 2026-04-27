@@ -21,8 +21,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/robertjndw/go-lti"
-	"github.com/robertjndw/go-lti/internal/randutil"
+	"github.com/robertjndw/go-lti-tool"
+	"github.com/robertjndw/go-lti-tool/internal/randutil"
 )
 
 // Builder constructs LTI Deep Linking response JWTs and forms.

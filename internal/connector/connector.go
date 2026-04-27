@@ -22,8 +22,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/robertjndw/go-lti"
-	"github.com/robertjndw/go-lti/internal/randutil"
+	"github.com/robertjndw/go-lti-tool"
+	"github.com/robertjndw/go-lti-tool/internal/randutil"
 )
 
 // maxResponseBodyBytes limits the size of HTTP response bodies read from the platform.

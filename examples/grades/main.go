@@ -21,9 +21,9 @@ import (
 	"net/http"
 	"time"
 
-	lti "github.com/robertjndw/go-lti"
-	"github.com/robertjndw/go-lti/advantage/ags"
-	"github.com/robertjndw/go-lti/jwks"
+	lti "github.com/robertjndw/go-lti-tool"
+	"github.com/robertjndw/go-lti-tool/advantage/ags"
+	"github.com/robertjndw/go-lti-tool/jwks"
 )
 
 func main() {

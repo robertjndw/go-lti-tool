@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	lti "github.com/robertjndw/go-lti"
-	"github.com/robertjndw/go-lti/internal/ltitest"
-	"github.com/robertjndw/go-lti/login"
+	lti "github.com/robertjndw/go-lti-tool"
+	"github.com/robertjndw/go-lti-tool/internal/ltitest"
+	"github.com/robertjndw/go-lti-tool/login"
 )
 
 // newLoginConfig returns a ready-to-use login.Config backed by a simple in-memory store.

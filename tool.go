@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/robertjndw/go-lti/dynreg"
-	lticore "github.com/robertjndw/go-lti/internal/lticore"
-	"github.com/robertjndw/go-lti/jwks"
-	"github.com/robertjndw/go-lti/launch"
-	"github.com/robertjndw/go-lti/login"
+	"github.com/robertjndw/go-lti-tool/dynreg"
+	lticore "github.com/robertjndw/go-lti-tool/internal/lticore"
+	"github.com/robertjndw/go-lti-tool/jwks"
+	"github.com/robertjndw/go-lti-tool/launch"
+	"github.com/robertjndw/go-lti-tool/login"
 )
 
 // Tool is the main entry point for an LTI 1.3 tool. It wires together a

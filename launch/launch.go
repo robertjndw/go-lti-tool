@@ -18,8 +18,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/lestrrat-go/jwx/v3/jwk"
-	lticore "github.com/robertjndw/go-lti/internal/lticore"
-	"github.com/robertjndw/go-lti/internal/randutil"
+	lticore "github.com/robertjndw/go-lti-tool/internal/lticore"
+	"github.com/robertjndw/go-lti-tool/internal/randutil"
 )
 
 // contextKey is an unexported type for context keys in this package.

@@ -13,8 +13,8 @@ import (
 	"net/http"
 	"net/url"
 
-	lticore "github.com/robertjndw/go-lti/internal/lticore"
-	"github.com/robertjndw/go-lti/internal/randutil"
+	lticore "github.com/robertjndw/go-lti-tool/internal/lticore"
+	"github.com/robertjndw/go-lti-tool/internal/randutil"
 )
 
 // Config holds the dependencies for the OIDC login initiation handler.
@@ -156,7 +156,7 @@ func (cr *cookieRecorder) Header() http.Header {
 	return cr.header
 }
 func (cr *cookieRecorder) Write([]byte) (int, error) { return 0, nil }
-func (cr *cookieRecorder) WriteHeader(int)            {}
+func (cr *cookieRecorder) WriteHeader(int)           {}
 func (cr *cookieRecorder) Flush() {
 	for _, line := range cr.header["Set-Cookie"] {
 		if c, err := http.ParseSetCookie(line); err == nil {

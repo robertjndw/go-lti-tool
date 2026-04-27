@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	lti "github.com/robertjndw/go-lti"
-	"github.com/robertjndw/go-lti/internal/ltitest"
-	"github.com/robertjndw/go-lti/launch"
+	lti "github.com/robertjndw/go-lti-tool"
+	"github.com/robertjndw/go-lti-tool/internal/ltitest"
+	"github.com/robertjndw/go-lti-tool/launch"
 )
 
 // ── Test fixtures ─────────────────────────────────────────────────────────────

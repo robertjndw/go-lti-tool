@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	lti "github.com/robertjndw/go-lti"
+	lti "github.com/robertjndw/go-lti-tool"
 )
 
 // ── Audience JSON handling ────────────────────────────────────────────────────

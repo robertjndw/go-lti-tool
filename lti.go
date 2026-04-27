@@ -11,8 +11,8 @@ package lti
 import (
 	"crypto/rsa"
 
-	"github.com/robertjndw/go-lti/dynreg"
-	lticore "github.com/robertjndw/go-lti/internal/lticore"
+	"github.com/robertjndw/go-lti-tool/dynreg"
+	lticore "github.com/robertjndw/go-lti-tool/internal/lticore"
 )
 
 // ── Type aliases ──────────────────────────────────────────────────────────────
@@ -34,11 +34,11 @@ type (
 	Deployment   = lticore.Deployment
 	Launch       = lticore.Launch
 
-	Datastore           = lticore.Datastore
-	RegistrationWriter  = lticore.RegistrationWriter
-	NonceStore          = lticore.NonceStore
-	LaunchDataStore = lticore.LaunchDataStore
-	CookieHandler   = lticore.CookieHandler
+	Datastore          = lticore.Datastore
+	RegistrationWriter = lticore.RegistrationWriter
+	NonceStore         = lticore.NonceStore
+	LaunchDataStore    = lticore.LaunchDataStore
+	CookieHandler      = lticore.CookieHandler
 
 	DefaultCookieHandler = lticore.DefaultCookieHandler
 

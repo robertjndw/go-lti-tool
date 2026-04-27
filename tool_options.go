@@ -1,6 +1,6 @@
 package lti
 
-import "github.com/robertjndw/go-lti/jwks"
+import "github.com/robertjndw/go-lti-tool/jwks"
 
 // ToolOption is a functional option for configuring a Tool.
 type ToolOption func(*Tool)

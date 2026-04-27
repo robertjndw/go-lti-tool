@@ -1,4 +1,4 @@
-# go-lti
+# go-lti-tool
 
 A Go SDK for [LTI 1.3](https://www.imsglobal.org/spec/lti/v1p3) targeting tool implementations. Covers the full LTI Advantage surface: OIDC launch flow, Assignment & Grade Services (AGS), Names & Role Provisioning Services (NRPS), and Deep Linking.
 
@@ -15,7 +15,7 @@ A Go SDK for [LTI 1.3](https://www.imsglobal.org/spec/lti/v1p3) targeting tool i
 
 | Package | Purpose |
 |---|---|
-| `github.com/robertjndw/go-lti` | Core types, interfaces, defaults |
+| `github.com/robertjndw/go-lti-tool` | Core types, interfaces, defaults |
 | `.../login` | OIDC login initiation handler (step 1) |
 | `.../launch` | JWT validation + launch middleware (step 2) |
 | `.../jwks` | Serve the tool's public JWKS endpoint |
@@ -34,8 +34,8 @@ import (
     "fmt"
     "net/http"
 
-    lti "github.com/robertjndw/go-lti"
-    "github.com/robertjndw/go-lti/jwks"
+    lti "github.com/robertjndw/go-lti-tool"
+    "github.com/robertjndw/go-lti-tool/jwks"
 )
 
 func main() {
@@ -79,7 +79,7 @@ func handleLaunch(w http.ResponseWriter, r *http.Request) {
 ### Assignment & Grade Services (AGS)
 
 ```go
-import "github.com/robertjndw/go-lti/advantage/ags"
+import "github.com/robertjndw/go-lti-tool/advantage/ags"
 
 svc, err := ags.NewFromLaunch(ld)
 
@@ -102,7 +102,7 @@ err = svc.SubmitScore(ctx, li.ID, ags.Score{
 ### Names & Role Provisioning Services (NRPS)
 
 ```go
-import "github.com/robertjndw/go-lti/advantage/nrps"
+import "github.com/robertjndw/go-lti-tool/advantage/nrps"
 
 svc, err := nrps.NewFromLaunch(ld)
 members, err := svc.GetMembers(ctx) // pagination handled automatically
@@ -111,7 +111,7 @@ members, err := svc.GetMembers(ctx) // pagination handled automatically
 ### Deep Linking
 
 ```go
-import "github.com/robertjndw/go-lti/advantage/deeplink"
+import "github.com/robertjndw/go-lti-tool/advantage/deeplink"
 
 builder, err := deeplink.NewFromLaunch(ld)
 html, err := builder.ResponseFormHTML([]deeplink.Resource{

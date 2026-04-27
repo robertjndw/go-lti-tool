@@ -29,11 +29,11 @@ import (
 	"strings"
 	"time"
 
-	lti "github.com/robertjndw/go-lti"
-	"github.com/robertjndw/go-lti/advantage/ags"
-	"github.com/robertjndw/go-lti/advantage/deeplink"
-	"github.com/robertjndw/go-lti/advantage/nrps"
-	"github.com/robertjndw/go-lti/jwks"
+	lti "github.com/robertjndw/go-lti-tool"
+	"github.com/robertjndw/go-lti-tool/advantage/ags"
+	"github.com/robertjndw/go-lti-tool/advantage/deeplink"
+	"github.com/robertjndw/go-lti-tool/advantage/nrps"
+	"github.com/robertjndw/go-lti-tool/jwks"
 )
 
 const kid = "key-1"
@@ -99,7 +99,7 @@ func main() {
 				Placements:    []string{"ContentArea", "LinkSelection"},
 			},
 		},
-		Description: "Full LTI 1.3 Advantage demo built with github.com/robertjndw/go-lti.",
+		Description: "Full LTI 1.3 Advantage demo built with github.com/robertjndw/go-lti-tool.",
 	}))
 
 	addr := ":8080"

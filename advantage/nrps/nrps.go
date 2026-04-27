@@ -18,8 +18,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/robertjndw/go-lti"
-	"github.com/robertjndw/go-lti/internal/connector"
+	"github.com/robertjndw/go-lti-tool"
+	"github.com/robertjndw/go-lti-tool/internal/connector"
 )
 
 // membershipsResponse is the NRPS API response envelope.

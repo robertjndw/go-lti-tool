@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	lti "github.com/robertjndw/go-lti"
-	"github.com/robertjndw/go-lti/internal/ltitest"
-	"github.com/robertjndw/go-lti/jwks"
+	lti "github.com/robertjndw/go-lti-tool"
+	"github.com/robertjndw/go-lti-tool/internal/ltitest"
+	"github.com/robertjndw/go-lti-tool/jwks"
 )
 
 func newReg(t *testing.T, kid string) (*lti.Registration, *rsa.PrivateKey) {

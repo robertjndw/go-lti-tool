@@ -21,7 +21,7 @@ import (
 	"net/url"
 	"strings"
 
-	lticore "github.com/robertjndw/go-lti/internal/lticore"
+	lticore "github.com/robertjndw/go-lti-tool/internal/lticore"
 )
 
 // maxResponseBodyBytes limits the size of HTTP response bodies read from the platform.

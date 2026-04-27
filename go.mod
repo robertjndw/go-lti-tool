@@ -1,4 +1,4 @@
-module github.com/robertjndw/go-lti
+module github.com/robertjndw/go-lti-tool
 
 go 1.25.0
 

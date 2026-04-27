@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	lti "github.com/robertjndw/go-lti"
-	"github.com/robertjndw/go-lti/advantage/ags"
-	"github.com/robertjndw/go-lti/internal/connector"
-	"github.com/robertjndw/go-lti/internal/ltitest"
+	lti "github.com/robertjndw/go-lti-tool"
+	"github.com/robertjndw/go-lti-tool/advantage/ags"
+	"github.com/robertjndw/go-lti-tool/internal/connector"
+	"github.com/robertjndw/go-lti-tool/internal/ltitest"
 )
 
 // newTokenServer starts a mock OAuth2 token endpoint that always returns a bearer token.

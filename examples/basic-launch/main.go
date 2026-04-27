@@ -27,8 +27,8 @@ import (
 	"log"
 	"net/http"
 
-	lti "github.com/robertjndw/go-lti"
-	"github.com/robertjndw/go-lti/jwks"
+	lti "github.com/robertjndw/go-lti-tool"
+	"github.com/robertjndw/go-lti-tool/jwks"
 )
 
 func main() {
@@ -109,7 +109,7 @@ func main() {
 		},
 
 		// Optional metadata shown in the platform's admin UI.
-		Description: "Example Go LTI 1.3 tool built with github.com/robertjndw/go-lti.",
+		Description: "Example Go LTI 1.3 tool built with github.com/robertjndw/go-lti-tool.",
 	}))
 
 	log.Println("LTI tool listening on :8080")

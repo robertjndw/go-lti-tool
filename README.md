@@ -130,6 +130,7 @@ See the [`examples/`](examples/) directory:
 | [`grades`](examples/grades/) | Submit grades via AGS |
 | [`deep-linking`](examples/deep-linking/) | Deep linking content picker |
 | [`complete`](examples/complete/) | Full LTI Advantage with all services |
+| [`moodle`](examples/moodle/) | Full LTI Advantage against a local Moodle instance via Docker (dynamic registration, deep linking, NRPS, AGS) |
 
 ## Key Management
 

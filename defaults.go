@@ -2,17 +2,20 @@ package lti
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 )
 
 type deploymentKey struct{ issuer, deploymentID string }
+type registrationKey struct{ issuer, clientID string }
 
 // MemoryStore is an in-memory Datastore suitable for development and testing.
 // NOT suitable for production: data is lost on restart and not shared across instances.
+// It supports multiple registrations per issuer, keyed by (issuer, client_id).
 type MemoryStore struct {
 	muReg         sync.RWMutex
-	registrations map[string]Registration
+	registrations map[registrationKey]Registration
 
 	muDeployment sync.RWMutex
 	deployments  map[deploymentKey]Deployment
@@ -21,7 +24,7 @@ type MemoryStore struct {
 // NewMemoryStore creates an empty MemoryStore.
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		registrations: make(map[string]Registration),
+		registrations: make(map[registrationKey]Registration),
 		deployments:   make(map[deploymentKey]Deployment),
 	}
 }
@@ -29,18 +32,42 @@ func NewMemoryStore() *MemoryStore {
 func (s *MemoryStore) AddRegistration(_ context.Context, reg Registration) error {
 	s.muReg.Lock()
 	defer s.muReg.Unlock()
-	s.registrations[reg.Issuer] = reg
+	s.registrations[registrationKey{reg.Issuer, reg.ClientID}] = reg
 	return nil
 }
 
-func (s *MemoryStore) FindRegistrationByIssuer(_ context.Context, issuer string) (*Registration, error) {
+// FindRegistration returns the registration for the (issuer, client_id) pair.
+// With an empty clientID it returns the issuer's registration only when exactly
+// one exists; multiple matches are ambiguous and produce an error.
+func (s *MemoryStore) FindRegistration(_ context.Context, issuer, clientID string) (*Registration, error) {
 	s.muReg.RLock()
 	defer s.muReg.RUnlock()
-	reg, ok := s.registrations[issuer]
-	if !ok {
+	if clientID != "" {
+		reg, ok := s.registrations[registrationKey{issuer, clientID}]
+		if !ok {
+			return nil, ErrRegistrationNotFound
+		}
+		return &reg, nil
+	}
+	var found *Registration
+	for key, reg := range s.registrations {
+		if key.issuer != issuer {
+			continue
+		}
+		if found != nil {
+			return nil, fmt.Errorf("%w: multiple registrations for issuer %q, client_id required", ErrRegistrationNotFound, issuer)
+		}
+		reg := reg
+		found = &reg
+	}
+	if found == nil {
 		return nil, ErrRegistrationNotFound
 	}
-	return &reg, nil
+	return found, nil
+}
+
+func (s *MemoryStore) FindRegistrationByIssuer(ctx context.Context, issuer string) (*Registration, error) {
+	return s.FindRegistration(ctx, issuer, "")
 }
 
 func (s *MemoryStore) AddDeployment(_ context.Context, issuer string, dep Deployment) error {

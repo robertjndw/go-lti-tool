@@ -28,6 +28,7 @@ func newBuilder(t *testing.T) (*deeplink.Builder, *lti.Registration) {
 		DeepLinkReturnURL:                 "https://platform.example.com/dl-return",
 		AcceptTypes:                       []string{"ltiResourceLink"},
 		AcceptPresentationDocumentTargets: []string{"iframe"},
+		AcceptMultiple:                    true,
 	}
 	return deeplink.New(reg, "deploy-1", settings), reg
 }

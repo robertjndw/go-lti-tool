@@ -12,6 +12,8 @@ type LTIClaims struct {
 	ExpiresAt int64    `json:"exp"`
 	IssuedAt  int64    `json:"iat"`
 	Nonce     string   `json:"nonce"`
+	// Azp is the OIDC authorized party. Required when aud has multiple values.
+	Azp string `json:"azp,omitempty"`
 
 	// OpenID Connect profile claims (optional).
 	Name       string `json:"name,omitempty"`
@@ -38,6 +40,17 @@ type LTIClaims struct {
 	// Optional key-value custom parameters.
 	Custom map[string]string `json:"https://purl.imsglobal.org/spec/lti/claim/custom,omitempty"`
 
+	// RoleScopeMentor lists the user IDs a Mentor-role user may access.
+	RoleScopeMentor []string `json:"https://purl.imsglobal.org/spec/lti/claim/role_scope_mentor,omitempty"`
+
+	// ForUser identifies the user a message is about (not the launching user).
+	// Required in LtiSubmissionReviewRequest launches.
+	ForUser *ForUserClaim `json:"https://purl.imsglobal.org/spec/lti/claim/for_user,omitempty"`
+
+	// LTI11 carries LTI 1.1 migration identifiers when the platform migrated
+	// this deployment from LTI 1.1 (LTI 1.3 migration guide).
+	LTI11 *LTI11Claim `json:"https://purl.imsglobal.org/spec/lti/claim/lti1p1,omitempty"`
+
 	// Optional LIS (Learning Information Services) identifiers.
 	LIS *LISClaim `json:"https://purl.imsglobal.org/spec/lti/claim/lis,omitempty"`
 
@@ -62,6 +75,25 @@ type ResourceLink struct {
 	ID          string `json:"id"`
 	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
+}
+
+// ForUserClaim identifies the user that a launch message concerns, e.g. the
+// student whose submission an instructor is reviewing.
+type ForUserClaim struct {
+	UserID          string   `json:"user_id"`
+	PersonSourcedID string   `json:"person_sourcedid,omitempty"`
+	Name            string   `json:"name,omitempty"`
+	GivenName       string   `json:"given_name,omitempty"`
+	FamilyName      string   `json:"family_name,omitempty"`
+	Email           string   `json:"email,omitempty"`
+	Roles           []string `json:"roles,omitempty"`
+}
+
+// LTI11Claim holds LTI 1.1 → 1.3 migration identifiers.
+type LTI11Claim struct {
+	UserID               string `json:"user_id,omitempty"`
+	OAuthConsumerKey     string `json:"oauth_consumer_key,omitempty"`
+	OAuthConsumerKeySign string `json:"oauth_consumer_key_sign,omitempty"`
 }
 
 // ContextClaim holds course/section context information.

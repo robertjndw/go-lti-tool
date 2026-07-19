@@ -29,6 +29,10 @@ type Member struct {
 	// LISPersonSourcedID is the LIS person identifier.
 	LISPersonSourcedID string `json:"lis_person_sourcedid,omitempty"`
 
+	// LTI11LegacyUserID is the user's LTI 1.1 user_id when the platform
+	// migrated this context from LTI 1.1.
+	LTI11LegacyUserID string `json:"lti11_legacy_user_id,omitempty"`
+
 	// Message contains additional LTI launch message data for this member.
 	Message []map[string]any `json:"message,omitempty"`
 }

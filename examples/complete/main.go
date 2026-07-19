@@ -139,8 +139,8 @@ func (a *app) handleResourceLaunch(w http.ResponseWriter, r *http.Request, ld *l
 			if err == nil {
 				score := ags.Score{
 					UserID:           ld.Claims.Subject,
-					ScoreGiven:       8,
-					ScoreMaximum:     10,
+					ScoreGiven:       ags.Float(8),
+					ScoreMaximum:     ags.Float(10),
 					ActivityProgress: ags.ActivityProgressCompleted,
 					GradingProgress:  ags.GradingProgressFullyGraded,
 					Timestamp:        time.Now().UTC().Format(time.RFC3339),

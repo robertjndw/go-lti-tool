@@ -65,7 +65,23 @@ func (h DefaultCookieHandler) SetCookie(w http.ResponseWriter, name, value strin
 }
 
 // DeleteCookie expires the named cookie and its LEGACY_ counterpart immediately.
+// The deletion cookies carry the same attributes as SetCookie writes: browsers
+// reject third-party Set-Cookie headers without SameSite=None; Secure, so a
+// bare deletion cookie would be dropped inside an LMS iframe.
 func (h DefaultCookieHandler) DeleteCookie(w http.ResponseWriter, name string) {
-	http.SetCookie(w, &http.Cookie{Name: name, MaxAge: -1, Path: "/"})
-	http.SetCookie(w, &http.Cookie{Name: "LEGACY_" + name, MaxAge: -1, Path: "/"})
+	http.SetCookie(w, &http.Cookie{
+		Name:     name,
+		MaxAge:   -1,
+		Path:     "/",
+		Secure:   true,
+		HttpOnly: true,
+		SameSite: http.SameSiteNoneMode,
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "LEGACY_" + name,
+		MaxAge:   -1,
+		Path:     "/",
+		Secure:   true,
+		HttpOnly: true,
+	})
 }

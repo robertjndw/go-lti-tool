@@ -15,6 +15,37 @@ type Datastore interface {
 	FindDeployment(ctx context.Context, issuer, deploymentID string) (*Deployment, error)
 }
 
+// RegistrationFinder is an optional extension of Datastore for deployments
+// where one issuer hosts multiple registrations (e.g. cloud Canvas, where every
+// school shares the issuer https://canvas.instructure.com). LTI 1.3 identifies
+// a registration by the (issuer, client_id) pair; implement this interface to
+// disambiguate.
+type RegistrationFinder interface {
+	// FindRegistration returns the Registration for the given issuer and
+	// client_id. When clientID is empty the implementation should return the
+	// registration for the issuer if it is unambiguous, and an error otherwise.
+	// Return ErrRegistrationNotFound if no matching registration exists.
+	FindRegistration(ctx context.Context, issuer, clientID string) (*Registration, error)
+}
+
+// FindRegistration resolves a registration by issuer and (optionally) client_id.
+// It uses the RegistrationFinder interface when the datastore implements it and
+// falls back to FindRegistrationByIssuer otherwise, verifying the client_id on
+// the returned registration when one was supplied.
+func FindRegistration(ctx context.Context, ds Datastore, issuer, clientID string) (*Registration, error) {
+	if rf, ok := ds.(RegistrationFinder); ok {
+		return rf.FindRegistration(ctx, issuer, clientID)
+	}
+	reg, err := ds.FindRegistrationByIssuer(ctx, issuer)
+	if err != nil {
+		return nil, err
+	}
+	if clientID != "" && reg.ClientID != clientID {
+		return nil, ErrRegistrationNotFound
+	}
+	return reg, nil
+}
+
 // RegistrationWriter persists platform registrations and deployments.
 // Datastores that support dynamic registration must implement this in addition to Datastore.
 type RegistrationWriter interface {

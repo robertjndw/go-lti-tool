@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 
 	"github.com/robertjndw/go-lti-tool"
 	"github.com/robertjndw/go-lti-tool/internal/connector"
@@ -52,6 +53,9 @@ const (
 type Service struct {
 	conn     *connector.Connector
 	endpoint *lti.AGSClaim
+	// resourceLinkID scopes FindOrCreateLineitem to the launching resource link
+	// when the service was built from a launch.
+	resourceLinkID string
 }
 
 // New creates an AGS Service using the given Connector and endpoint claim.
@@ -66,17 +70,68 @@ func NewFromLaunch(ld *lti.Launch) (*Service, error) {
 		return nil, lti.ErrAGSNotAvailable
 	}
 	conn := connector.New(ld.Registration)
-	return New(conn, ld.Claims.AGS), nil
+	svc := New(conn, ld.Claims.AGS)
+	if ld.Claims.ResourceLink != nil {
+		svc.resourceLinkID = ld.Claims.ResourceLink.ID
+	}
+	return svc, nil
 }
 
-// GetLineitems returns all line items from the platform gradebook.
-func (s *Service) GetLineitems(ctx context.Context) ([]Lineitem, error) {
+// LineitemQuery holds the filter parameters defined by the AGS spec for the
+// line item container endpoint. Zero-value fields are omitted.
+type LineitemQuery struct {
+	// ResourceLinkID restricts results to line items bound to that resource link.
+	ResourceLinkID string
+	// ResourceID restricts results to line items with that tool-defined resourceId.
+	ResourceID string
+	// Tag restricts results to line items with that tag.
+	Tag string
+	// Limit restricts the page size (the platform may return fewer; pagination
+	// is still followed to fetch all matching items).
+	Limit int
+}
+
+// apply appends the query parameters to rawURL.
+func (q LineitemQuery) apply(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+	params := u.Query()
+	if q.ResourceLinkID != "" {
+		params.Set("resource_link_id", q.ResourceLinkID)
+	}
+	if q.ResourceID != "" {
+		params.Set("resource_id", q.ResourceID)
+	}
+	if q.Tag != "" {
+		params.Set("tag", q.Tag)
+	}
+	if q.Limit > 0 {
+		params.Set("limit", strconv.Itoa(q.Limit))
+	}
+	u.RawQuery = params.Encode()
+	return u.String(), nil
+}
+
+// GetLineitems returns line items from the platform gradebook, following
+// pagination automatically. An optional LineitemQuery filters server-side by
+// resource_link_id, resource_id, tag and limit (AGS spec query parameters).
+func (s *Service) GetLineitems(ctx context.Context, query ...LineitemQuery) ([]Lineitem, error) {
 	if s.endpoint.Lineitems == "" {
 		return nil, fmt.Errorf("ags: lineitems URL is not available in this launch")
 	}
 
-	var all []Lineitem
 	pageURL := s.endpoint.Lineitems
+	if len(query) > 0 {
+		var err error
+		pageURL, err = query[0].apply(pageURL)
+		if err != nil {
+			return nil, fmt.Errorf("ags: invalid lineitems URL: %w", err)
+		}
+	}
+
+	var all []Lineitem
 	for pageURL != "" {
 		resp, err := s.conn.Request(ctx, http.MethodGet, pageURL, nil,
 			[]string{lti.ScopeAGSLineitemReadonly},
@@ -186,27 +241,47 @@ func (s *Service) DeleteLineitem(ctx context.Context, lineitemURL string) error 
 }
 
 // FindOrCreateLineitem looks for an existing line item matching the given
-// ResourceID and Tag, and creates one if none is found. Mirrors the PHP
-// reference library's find_or_create_lineitem behaviour.
+// ResourceID and Tag (scoped to the launching resource link when known), and
+// creates one if none is found. Mirrors the PHP reference library's
+// find_or_create_lineitem behaviour, with server-side filtering.
 func (s *Service) FindOrCreateLineitem(ctx context.Context, li Lineitem) (*Lineitem, error) {
 	// If the launch already provided a specific lineitem URL, use it directly.
+	// A failure here is a real error: falling through could create a duplicate.
 	if s.endpoint.Lineitem != "" {
 		existing, err := s.GetLineitem(ctx, s.endpoint.Lineitem)
-		if err == nil {
-			return existing, nil
+		if err != nil {
+			return nil, fmt.Errorf("ags: FindOrCreateLineitem: launch lineitem fetch failed: %w", err)
 		}
+		return existing, nil
 	}
 
-	existing, err := s.GetLineitems(ctx)
+	// Filter server-side; platforms that ignore the query parameters are
+	// handled by the client-side match below.
+	resourceLinkID := li.ResourceLinkID
+	if resourceLinkID == "" {
+		resourceLinkID = s.resourceLinkID
+	}
+	existing, err := s.GetLineitems(ctx, LineitemQuery{
+		ResourceLinkID: resourceLinkID,
+		ResourceID:     li.ResourceID,
+		Tag:            li.Tag,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("ags: FindOrCreateLineitem: %w", err)
 	}
 
 	for i := range existing {
-		if (li.ResourceID == "" || existing[i].ResourceID == li.ResourceID) &&
-			(li.Tag == "" || existing[i].Tag == li.Tag) {
-			return &existing[i], nil
+		if li.ResourceID != "" && existing[i].ResourceID != li.ResourceID {
+			continue
 		}
+		if li.Tag != "" && existing[i].Tag != li.Tag {
+			continue
+		}
+		// Never match a line item bound to a different resource link.
+		if resourceLinkID != "" && existing[i].ResourceLinkID != "" && existing[i].ResourceLinkID != resourceLinkID {
+			continue
+		}
+		return &existing[i], nil
 	}
 
 	return s.CreateLineitem(ctx, li)
@@ -214,6 +289,24 @@ func (s *Service) FindOrCreateLineitem(ctx context.Context, li Lineitem) (*Linei
 
 // SubmitScore posts a Score to the platform for the given line item URL.
 func (s *Service) SubmitScore(ctx context.Context, lineitemURL string, score Score) error {
+	if score.UserID == "" {
+		return fmt.Errorf("ags: SubmitScore: UserID is required")
+	}
+	if score.ActivityProgress == "" || score.GradingProgress == "" {
+		return fmt.Errorf("ags: SubmitScore: ActivityProgress and GradingProgress are required")
+	}
+	if score.Timestamp == "" {
+		return fmt.Errorf("ags: SubmitScore: Timestamp is required (ISO 8601)")
+	}
+	// AGS spec: scoreMaximum is required whenever scoreGiven is present.
+	if score.ScoreGiven != nil {
+		if score.ScoreMaximum == nil {
+			return fmt.Errorf("ags: SubmitScore: ScoreMaximum is required when ScoreGiven is set")
+		}
+		if *score.ScoreMaximum <= 0 {
+			return fmt.Errorf("ags: SubmitScore: ScoreMaximum must be a positive number")
+		}
+	}
 	// Scores are posted to <lineitem_url>/scores. Use appendPathSegment so that
 	// query parameters (e.g. ?type_id=8 from Moodle) are preserved correctly.
 	scoresURL, err := appendPathSegment(lineitemURL, "scores")
@@ -232,7 +325,8 @@ func (s *Service) SubmitScore(ctx context.Context, lineitemURL string, score Sco
 	if err != nil {
 		return fmt.Errorf("ags: SubmitScore request failed: %w", err)
 	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+	// The AGS spec example responds 204 No Content; platforms also use 200/201.
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("ags: SubmitScore returned %d: %s", resp.StatusCode, resp.Body)
 	}
 	return nil

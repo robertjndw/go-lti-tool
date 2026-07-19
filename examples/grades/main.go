@@ -100,8 +100,8 @@ func handleLaunch(w http.ResponseWriter, r *http.Request) {
 	// Submit a score for the launching user (85/100 for this example).
 	score := ags.Score{
 		UserID:           ld.Claims.Subject,
-		ScoreGiven:       85,
-		ScoreMaximum:     100,
+		ScoreGiven:       ags.Float(85),
+		ScoreMaximum:     ags.Float(100),
 		Comment:          "Great work!",
 		ActivityProgress: ags.ActivityProgressCompleted,
 		GradingProgress:  ags.GradingProgressFullyGraded,
@@ -111,7 +111,7 @@ func handleLaunch(w http.ResponseWriter, r *http.Request) {
 		log.Printf("SubmitScore warning: %v", err)
 		// Non-fatal: the tool still launched successfully.
 	} else {
-		log.Printf("submitted score %.0f/%.0f for user %s", score.ScoreGiven, score.ScoreMaximum, score.UserID)
+		log.Printf("submitted score %.0f/%.0f for user %s", *score.ScoreGiven, *score.ScoreMaximum, score.UserID)
 	}
 
 	// Read results back.

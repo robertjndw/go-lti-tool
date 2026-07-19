@@ -262,7 +262,9 @@ func TestLaunch_AudienceStringMismatch_Rejected(t *testing.T) {
 }
 
 // Spec: aud may be an array; the tool's client_id must appear in that array.
-func TestLaunch_AudienceArray_ContainsClientID_Accepted(t *testing.T) {
+// OIDC Core §3.1.3.7: with multiple audiences azp must be present and match.
+// 1EdTech Security Framework: additional audiences must be explicitly trusted.
+func TestLaunch_AudienceArray_TrustedAudiences_Accepted(t *testing.T) {
 	f := newFixture(t)
 	nonce := "nonce-audarray"
 	f.storeNonce(t, nonce)
@@ -271,14 +273,98 @@ func TestLaunch_AudienceArray_ContainsClientID_Accepted(t *testing.T) {
 
 	token := f.validToken(t, nonce, func(c jwt.MapClaims) {
 		c["aud"] = []string{"other-app", f.reg.ClientID, "third-app"}
+		c["azp"] = f.reg.ClientID
 	})
 
-	ld, err := f.validate(t, state, token)
+	cfg := f.cfg()
+	cfg.TrustedAudiences = []string{"other-app", "third-app"}
+	req := ltitest.MakeLaunchRequest(t, state, token)
+	ld, err := launch.ValidateLaunch(context.Background(), cfg, req)
 	if err != nil {
-		t.Errorf("expected success for aud array containing client_id, got %v", err)
+		t.Errorf("expected success for trusted aud array, got %v", err)
 	}
 	if ld == nil {
 		t.Error("expected non-nil launch data")
+	}
+}
+
+// 1EdTech Security Framework: audiences the tool does not trust must cause
+// rejection even when the tool's own client_id is present.
+func TestLaunch_AudienceArray_UntrustedAudience_Rejected(t *testing.T) {
+	f := newFixture(t)
+	nonce := "nonce-auduntrusted"
+	f.storeNonce(t, nonce)
+	state := "state-auduntrusted"
+	f.setStateCookie(state)
+
+	token := f.validToken(t, nonce, func(c jwt.MapClaims) {
+		c["aud"] = []string{"other-app", f.reg.ClientID}
+		c["azp"] = f.reg.ClientID
+	})
+
+	_, err := f.validate(t, state, token)
+	if !errors.Is(err, lti.ErrInvalidClaims) {
+		t.Errorf("expected ErrInvalidClaims for untrusted audience, got %v", err)
+	}
+}
+
+// OIDC Core §3.1.3.7: multiple audiences without an azp claim must be rejected
+// even when every audience is trusted.
+func TestLaunch_AudienceArray_MissingAzp_Rejected(t *testing.T) {
+	f := newFixture(t)
+	nonce := "nonce-noazp"
+	f.storeNonce(t, nonce)
+	state := "state-noazp"
+	f.setStateCookie(state)
+
+	token := f.validToken(t, nonce, func(c jwt.MapClaims) {
+		c["aud"] = []string{"other-app", f.reg.ClientID}
+	})
+
+	cfg := f.cfg()
+	cfg.TrustedAudiences = []string{"other-app"}
+	req := ltitest.MakeLaunchRequest(t, state, token)
+	_, err := launch.ValidateLaunch(context.Background(), cfg, req)
+	if !errors.Is(err, lti.ErrMissingClaim) {
+		t.Errorf("expected ErrMissingClaim for missing azp, got %v", err)
+	}
+}
+
+// OIDC Core §3.1.3.7: a present azp claim must equal the tool's client_id.
+func TestLaunch_AzpMismatch_Rejected(t *testing.T) {
+	f := newFixture(t)
+	nonce := "nonce-azpmiss"
+	f.storeNonce(t, nonce)
+	state := "state-azpmiss"
+	f.setStateCookie(state)
+
+	token := f.validToken(t, nonce, func(c jwt.MapClaims) {
+		c["azp"] = "someone-else"
+	})
+
+	_, err := f.validate(t, state, token)
+	if !errors.Is(err, lti.ErrInvalidClaims) {
+		t.Errorf("expected ErrInvalidClaims for azp mismatch, got %v", err)
+	}
+}
+
+// IMS Security Framework: tokens issued too far in the past must be rejected
+// even when exp has not yet passed.
+func TestLaunch_StaleIat_Rejected(t *testing.T) {
+	f := newFixture(t)
+	nonce := "nonce-staleiat"
+	f.storeNonce(t, nonce)
+	state := "state-staleiat"
+	f.setStateCookie(state)
+
+	token := f.validToken(t, nonce, func(c jwt.MapClaims) {
+		c["iat"] = time.Now().Add(-30 * time.Minute).Unix()
+		c["exp"] = time.Now().Add(30 * time.Minute).Unix()
+	})
+
+	_, err := f.validate(t, state, token)
+	if !errors.Is(err, lti.ErrExpiredJWT) {
+		t.Errorf("expected ErrExpiredJWT for stale iat, got %v", err)
 	}
 }
 

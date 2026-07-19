@@ -17,11 +17,12 @@ import (
 // datastore, nonce store, launch data store and cookie handler into
 // ready-to-use http.Handlers.
 type Tool struct {
-	dataStore       lticore.Datastore
-	nonceStore      lticore.NonceStore
-	launchDataStore lticore.LaunchDataStore
-	cookieHandler   lticore.CookieHandler
-	keySet          jwks.KeySetProvider
+	dataStore            lticore.Datastore
+	nonceStore           lticore.NonceStore
+	launchDataStore      lticore.LaunchDataStore
+	cookieHandler        lticore.CookieHandler
+	keySet               jwks.KeySetProvider
+	allowedRedirectHosts []string
 }
 
 // NewTool creates a Tool pre-configured with in-memory stores and the default cookie handler.
@@ -57,9 +58,10 @@ func (t *Tool) GetLaunch(ctx context.Context, launchID string) (*Launch, error) 
 // the platform's OIDC authorization endpoint.
 func (t *Tool) HandleLogin() http.Handler {
 	return login.Handler(login.Config{
-		Datastore:     t.dataStore,
-		NonceStore:    t.nonceStore,
-		CookieHandler: t.cookieHandler,
+		Datastore:            t.dataStore,
+		NonceStore:           t.nonceStore,
+		CookieHandler:        t.cookieHandler,
+		AllowedRedirectHosts: t.allowedRedirectHosts,
 	})
 }
 

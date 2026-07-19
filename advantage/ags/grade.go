@@ -1,16 +1,23 @@
 package ags
 
+// Float returns a pointer to v, for filling optional score fields such as
+// Score.ScoreGiven inline: ags.Score{ScoreGiven: ags.Float(85), ...}.
+func Float(v float64) *float64 { return &v }
+
 // Score is the payload sent to the platform to record a learner's grade.
 // It maps to the LTI AGS Score schema.
 type Score struct {
 	// UserID is the platform user identifier (the "sub" claim from the launch JWT).
 	UserID string `json:"userId"`
 
-	// ScoreGiven is the achieved score. Omit if no score is being reported.
-	ScoreGiven float64 `json:"scoreGiven,omitempty"`
+	// ScoreGiven is the achieved score. Nil means no score is being reported
+	// (which is different from a score of 0). Use ags.Float to set it inline.
+	// When set, ScoreMaximum must also be set (AGS spec).
+	ScoreGiven *float64 `json:"scoreGiven,omitempty"`
 
-	// ScoreMaximum is the maximum possible score. Must match the line item if provided.
-	ScoreMaximum float64 `json:"scoreMaximum,omitempty"`
+	// ScoreMaximum is the maximum possible score. Required whenever ScoreGiven
+	// is present; must be a positive number.
+	ScoreMaximum *float64 `json:"scoreMaximum,omitempty"`
 
 	// Comment is an optional human-readable comment about the score.
 	Comment string `json:"comment,omitempty"`
@@ -51,11 +58,12 @@ type Result struct {
 	// UserID is the platform user identifier.
 	UserID string `json:"userId"`
 
-	// ResultScore is the achieved score.
-	ResultScore float64 `json:"resultScore,omitempty"`
+	// ResultScore is the achieved score. Nil means the platform reported no
+	// score (as opposed to a score of 0).
+	ResultScore *float64 `json:"resultScore,omitempty"`
 
 	// ResultMaximum is the maximum possible score.
-	ResultMaximum float64 `json:"resultMaximum,omitempty"`
+	ResultMaximum *float64 `json:"resultMaximum,omitempty"`
 
 	// Comment is an optional comment.
 	Comment string `json:"comment,omitempty"`

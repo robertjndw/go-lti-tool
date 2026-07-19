@@ -14,7 +14,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/lestrrat-go/jwx/v3/jwk"
@@ -44,6 +47,28 @@ type Config struct {
 
 	// JWKSFetchOptions are optional options passed to jwk.Fetch.
 	JWKSFetchOptions []jwk.FetchOption
+
+	// Leeway is the clock-skew tolerance applied when validating exp/iat.
+	// Defaults to 60 seconds; platform clocks are rarely perfectly in sync.
+	Leeway time.Duration
+
+	// MaxTokenAge is the maximum accepted age of the id_token (now minus iat).
+	// The IMS Security Framework requires rejecting tokens issued too far in
+	// the past. Defaults to 10 minutes (matching the state/nonce TTL); set a
+	// negative value to disable the check.
+	MaxTokenAge time.Duration
+
+	// JWKSCacheTTL controls how long fetched platform JWKS documents are
+	// reused before being re-fetched. A cache miss on an unknown kid always
+	// triggers a refresh, so key rotation is picked up immediately.
+	// Defaults to 1 hour; set a negative value to disable caching.
+	JWKSCacheTTL time.Duration
+
+	// TrustedAudiences lists additional aud values the tool accepts besides its
+	// own client_id. The 1EdTech Security Framework requires rejecting tokens
+	// carrying audiences the tool does not trust, so by default any aud entry
+	// other than the client_id causes the launch to fail.
+	TrustedAudiences []string
 }
 
 func (c *Config) cookieHandler() lticore.CookieHandler {
@@ -58,6 +83,27 @@ func (c *Config) validators() []MessageValidator {
 		return c.Validators
 	}
 	return DefaultValidators()
+}
+
+func (c *Config) leeway() time.Duration {
+	if c.Leeway > 0 {
+		return c.Leeway
+	}
+	return 60 * time.Second
+}
+
+func (c *Config) maxTokenAge() time.Duration {
+	if c.MaxTokenAge != 0 {
+		return c.MaxTokenAge
+	}
+	return 10 * time.Minute
+}
+
+func (c *Config) jwksCacheTTL() time.Duration {
+	if c.JWKSCacheTTL != 0 {
+		return c.JWKSCacheTTL
+	}
+	return time.Hour
 }
 
 // Handler returns an http.Handler middleware that validates the LTI launch POST
@@ -122,20 +168,20 @@ func ValidateLaunch(ctx context.Context, cfg Config, r *http.Request) (*lticore.
 		return nil, fmt.Errorf("lti/launch: %w", err)
 	}
 
-	// Step 3: Look up the registration by issuer.
-	reg, err := cfg.Datastore.FindRegistrationByIssuer(ctx, rawClaims.Issuer)
+	// Step 3: Look up the registration by issuer + client_id (azp/aud).
+	reg, err := findRegistration(ctx, cfg.Datastore, rawClaims)
 	if err != nil {
 		return nil, fmt.Errorf("lti/launch: %w", err)
 	}
 
 	// Step 4: Fetch the platform's JWKS and verify the JWT signature.
-	claims, err := verifyJWT(ctx, idToken, reg, kid, cfg.JWKSFetchOptions)
+	claims, err := verifyJWT(ctx, idToken, reg, kid, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("lti/launch: %w", err)
 	}
 
 	// Step 5: Validate standard OIDC claims.
-	if err := validateOIDCClaims(claims, reg); err != nil {
+	if err := validateOIDCClaims(claims, reg, cfg); err != nil {
 		return nil, err
 	}
 
@@ -235,54 +281,150 @@ func decodeJWTUnverified(tokenStr string) (*lticore.LTIClaims, string, error) {
 	return &claims, header.KID, nil
 }
 
-// verifyJWT fetches the platform's JWKS and verifies the JWT signature, returning
-// the validated claims.
-func verifyJWT(ctx context.Context, tokenStr string, reg *lticore.Registration, kid string, fetchOpts []jwk.FetchOption) (*lticore.LTIClaims, error) {
-	// Fetch the platform's JWKS.
-	keySet, err := jwk.Fetch(ctx, reg.KeySetURL, fetchOpts...)
+// findRegistration resolves the registration for the token's issuer, using the
+// client_id hints available in the unverified claims (azp, then aud values) to
+// disambiguate issuers that host multiple registrations. The claims are only
+// hints at this point — the id_token signature and audience are verified
+// against the resolved registration afterwards.
+func findRegistration(ctx context.Context, ds lticore.Datastore, claims *lticore.LTIClaims) (*lticore.Registration, error) {
+	var candidates []string
+	if claims.Azp != "" {
+		candidates = append(candidates, claims.Azp)
+	}
+	for _, aud := range claims.Audience {
+		if aud != claims.Azp {
+			candidates = append(candidates, aud)
+		}
+	}
+	if len(candidates) == 0 {
+		return lticore.FindRegistration(ctx, ds, claims.Issuer, "")
+	}
+	var lastErr error
+	for _, clientID := range candidates {
+		reg, err := lticore.FindRegistration(ctx, ds, claims.Issuer, clientID)
+		if err == nil {
+			return reg, nil
+		}
+		lastErr = err
+	}
+	// No candidate matched. Fall back to the issuer's (unambiguous) registration
+	// so that a bad aud fails later with a clear "aud does not contain client_id"
+	// error instead of a registration-not-found error.
+	if reg, err := lticore.FindRegistration(ctx, ds, claims.Issuer, ""); err == nil {
+		return reg, nil
+	}
+	return nil, lastErr
+}
+
+// jwksCacheEntry is a cached platform JWKS document.
+type jwksCacheEntry struct {
+	set       jwk.Set
+	fetchedAt time.Time
+}
+
+// jwksCache caches platform key sets by URL across launches so that each launch
+// does not depend on (and wait for) the platform's JWKS endpoint.
+var jwksCache sync.Map // KeySetURL → *jwksCacheEntry
+
+// fetchKeySet returns the platform JWKS, from cache when fresh unless
+// forceRefresh is set. fromCache reports whether the returned set was served
+// from the cache. ttl <= 0 disables caching entirely.
+func fetchKeySet(ctx context.Context, url string, ttl time.Duration, fetchOpts []jwk.FetchOption, forceRefresh bool) (set jwk.Set, fromCache bool, err error) {
+	if ttl > 0 && !forceRefresh {
+		if v, ok := jwksCache.Load(url); ok {
+			entry := v.(*jwksCacheEntry)
+			if time.Since(entry.fetchedAt) < ttl {
+				return entry.set, true, nil
+			}
+		}
+	}
+	set, err = jwk.Fetch(ctx, url, fetchOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch platform JWKS: %w", err)
+		return nil, false, fmt.Errorf("failed to fetch platform JWKS: %w", err)
 	}
+	if ttl > 0 {
+		jwksCache.Store(url, &jwksCacheEntry{set: set, fetchedAt: time.Now()})
+	}
+	return set, false, nil
+}
 
-	// Find the key that matches the JWT's KID.
-	var matchKey jwk.Key
+// candidateKeys returns the verification keys to try: the key matching kid when
+// one is present, or every key in the set when the JWT header omits kid.
+func candidateKeys(keySet jwk.Set, kid string) []jwk.Key {
 	if kid != "" {
-		k, found := keySet.LookupKeyID(kid)
-		if !found {
-			return nil, fmt.Errorf("%w: no key with kid=%q in platform JWKS", lticore.ErrInvalidSignature, kid)
+		if k, found := keySet.LookupKeyID(kid); found {
+			return []jwk.Key{k}
 		}
-		matchKey = k
-	} else {
-		// No KID in JWT header — use the first key in the set.
-		if keySet.Len() == 0 {
-			return nil, fmt.Errorf("%w: platform JWKS is empty", lticore.ErrInvalidSignature)
+		return nil
+	}
+	keys := make([]jwk.Key, 0, keySet.Len())
+	for i := 0; i < keySet.Len(); i++ {
+		if k, ok := keySet.Key(i); ok {
+			keys = append(keys, k)
 		}
-		k, ok := keySet.Key(0)
-		if !ok {
-			return nil, fmt.Errorf("%w: failed to access key at index 0", lticore.ErrInvalidSignature)
+	}
+	return keys
+}
+
+// tryVerify attempts signature verification with each candidate key, returning
+// the verified raw claims from the first key that succeeds.
+func tryVerify(parser *jwt.Parser, tokenStr string, keys []jwk.Key) (jwt.MapClaims, error) {
+	var lastErr error
+	for _, key := range keys {
+		var pubKey rsa.PublicKey
+		if err := jwk.Export(key, &pubKey); err != nil {
+			lastErr = fmt.Errorf("failed to export RSA public key: %w", err)
+			continue
 		}
-		matchKey = k
+		rawClaims := jwt.MapClaims{}
+		_, err := parser.ParseWithClaims(tokenStr, &rawClaims, func(t *jwt.Token) (any, error) {
+			return &pubKey, nil
+		})
+		if err == nil {
+			return rawClaims, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no verification keys available")
+	}
+	return nil, lastErr
+}
+
+// verifyJWT fetches the platform's JWKS and verifies the JWT signature, returning
+// the validated claims. When verification fails against a cached key set the
+// JWKS is re-fetched once and verification retried, so platform key rotation is
+// picked up immediately.
+func verifyJWT(ctx context.Context, tokenStr string, reg *lticore.Registration, kid string, cfg Config) (*lticore.LTIClaims, error) {
+	ttl := cfg.jwksCacheTTL()
+	keySet, fromCache, err := fetchKeySet(ctx, reg.KeySetURL, ttl, cfg.JWKSFetchOptions, false)
+	if err != nil {
+		return nil, err
 	}
 
-	// Extract the raw RSA public key.
-	var pubKey rsa.PublicKey
-	if err := jwk.Export(matchKey, &pubKey); err != nil {
-		return nil, fmt.Errorf("%w: failed to export RSA public key: %v", lticore.ErrInvalidSignature, err)
-	}
-
-	// Verify the JWT signature using golang-jwt.
 	parser := jwt.NewParser(
 		jwt.WithValidMethods([]string{"RS256"}),
 		jwt.WithExpirationRequired(),
 		jwt.WithIssuedAt(),
+		jwt.WithLeeway(cfg.leeway()),
 	)
 
-	var rawClaims jwt.MapClaims
-	_, err = parser.ParseWithClaims(tokenStr, &rawClaims, func(t *jwt.Token) (any, error) {
-		return &pubKey, nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", lticore.ErrInvalidSignature, err)
+	keys := candidateKeys(keySet, kid)
+	rawClaims, verifyErr := tryVerify(parser, tokenStr, keys)
+	if verifyErr != nil && fromCache {
+		// The cached key set may be stale (rotated keys): refresh once and retry.
+		keySet, _, err = fetchKeySet(ctx, reg.KeySetURL, ttl, cfg.JWKSFetchOptions, true)
+		if err != nil {
+			return nil, err
+		}
+		keys = candidateKeys(keySet, kid)
+		rawClaims, verifyErr = tryVerify(parser, tokenStr, keys)
+	}
+	if verifyErr != nil {
+		if len(keys) == 0 && kid != "" {
+			return nil, fmt.Errorf("%w: no key with kid=%q in platform JWKS", lticore.ErrInvalidSignature, kid)
+		}
+		return nil, fmt.Errorf("%w: %v", lticore.ErrInvalidSignature, verifyErr)
 	}
 
 	// Re-marshal the verified payload into our typed claims struct.
@@ -298,15 +440,38 @@ func verifyJWT(ctx context.Context, tokenStr string, reg *lticore.Registration, 
 }
 
 // validateOIDCClaims checks the standard OIDC claims against the registration.
-func validateOIDCClaims(claims *lticore.LTIClaims, reg *lticore.Registration) error {
+func validateOIDCClaims(claims *lticore.LTIClaims, reg *lticore.Registration, cfg Config) error {
 	if claims.Issuer != reg.Issuer {
 		return fmt.Errorf("%w: iss does not match registration", lticore.ErrInvalidClaims)
 	}
 	if !claims.Audience.Contains(reg.ClientID) {
 		return fmt.Errorf("%w: aud does not contain client_id", lticore.ErrInvalidClaims)
 	}
+	// 1EdTech Security Framework: reject tokens carrying audiences the tool
+	// does not trust (client_id plus any configured TrustedAudiences).
+	for _, aud := range claims.Audience {
+		if aud != reg.ClientID && !slices.Contains(cfg.TrustedAudiences, aud) {
+			return fmt.Errorf("%w: aud contains untrusted audience %q", lticore.ErrInvalidClaims, aud)
+		}
+	}
+	// OIDC Core §3.1.3.7: with multiple audiences azp must be present, and when
+	// present it must equal the client_id.
+	if claims.Azp != "" && claims.Azp != reg.ClientID {
+		return fmt.Errorf("%w: azp does not match client_id", lticore.ErrInvalidClaims)
+	}
+	if len(claims.Audience) > 1 && claims.Azp == "" {
+		return fmt.Errorf("%w: azp is required when aud has multiple values", lticore.ErrMissingClaim)
+	}
 	if claims.IssuedAt == 0 {
 		return fmt.Errorf("%w: iat claim is missing", lticore.ErrMissingClaim)
+	}
+	// IMS Security Framework: reject tokens issued too far in the past even if
+	// they have not yet expired.
+	if maxTokenAge := cfg.maxTokenAge(); maxTokenAge > 0 {
+		age := time.Since(time.Unix(claims.IssuedAt, 0))
+		if age > maxTokenAge+cfg.leeway() {
+			return fmt.Errorf("%w: token issued too long ago (iat age %s exceeds %s)", lticore.ErrExpiredJWT, age.Round(time.Second), maxTokenAge)
+		}
 	}
 	if claims.Nonce == "" {
 		return fmt.Errorf("%w: nonce is missing", lticore.ErrMissingClaim)

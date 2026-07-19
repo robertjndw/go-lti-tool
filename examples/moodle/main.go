@@ -191,8 +191,8 @@ func (s *server) handleResourceLaunch(w http.ResponseWriter, r *http.Request, ld
 				} else {
 					score := ags.Score{
 						UserID:           ld.Claims.Subject,
-						ScoreGiven:       75,
-						ScoreMaximum:     maxScore,
+						ScoreGiven:       ags.Float(75),
+						ScoreMaximum:     ags.Float(maxScore),
 						ActivityProgress: ags.ActivityProgressCompleted,
 						GradingProgress:  ags.GradingProgressFullyGraded,
 						Timestamp:        time.Now().UTC().Format(time.RFC3339),
@@ -202,7 +202,7 @@ func (s *server) handleResourceLaunch(w http.ResponseWriter, r *http.Request, ld
 					} else {
 						data.AGSResult = &agsResult{
 							LineitemLabel: li.Label,
-							ScoreGiven:    score.ScoreGiven,
+							ScoreGiven:    *score.ScoreGiven,
 							ScoreMax:      maxScore,
 						}
 					}

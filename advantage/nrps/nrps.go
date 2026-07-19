@@ -17,20 +17,74 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 
 	"github.com/robertjndw/go-lti-tool"
 	"github.com/robertjndw/go-lti-tool/internal/connector"
 )
 
+// Context identifies the course context a membership list belongs to.
+type Context struct {
+	ID    string `json:"id"`
+	Label string `json:"label,omitempty"`
+	Title string `json:"title,omitempty"`
+}
+
+// Memberships is the full NRPS response: the roster plus the context it
+// belongs to and, when the platform supports incremental sync, the URL to
+// fetch membership differences later.
+type Memberships struct {
+	// ID is the membership container URL reported by the platform.
+	ID string
+	// Context is the course context of the roster.
+	Context Context
+	// Members is the aggregated roster across all pages.
+	Members []Member
+	// DifferencesURL, when non-empty, can be requested later to receive only
+	// membership changes since this snapshot (rel="differences" Link header).
+	DifferencesURL string
+}
+
 // membershipsResponse is the NRPS API response envelope.
 type membershipsResponse struct {
 	ID      string   `json:"id"`
-	Context struct { //nolint:govet
-		ID    string `json:"id"`
-		Label string `json:"label,omitempty"`
-		Title string `json:"title,omitempty"`
-	} `json:"context"`
+	Context Context  `json:"context"`
 	Members []Member `json:"members"`
+}
+
+// MembersQuery holds the filter parameters defined by the NRPS spec.
+// Zero-value fields are omitted.
+type MembersQuery struct {
+	// Role restricts results to members with the given role (full URI or
+	// simple name, e.g. lti.RoleLearner).
+	Role string
+	// Limit restricts the page size (the platform may return fewer; pagination
+	// is still followed to fetch all matching members).
+	Limit int
+	// ResourceLinkID restricts results to members with access to that resource
+	// link (the "rlid" query parameter). Combine with AGS to know who can be graded.
+	ResourceLinkID string
+}
+
+// apply appends the query parameters to rawURL.
+func (q MembersQuery) apply(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+	params := u.Query()
+	if q.Role != "" {
+		params.Set("role", q.Role)
+	}
+	if q.Limit > 0 {
+		params.Set("limit", strconv.Itoa(q.Limit))
+	}
+	if q.ResourceLinkID != "" {
+		params.Set("rlid", q.ResourceLinkID)
+	}
+	u.RawQuery = params.Encode()
+	return u.String(), nil
 }
 
 // Service provides NRPS roster operations for a specific launch context.
@@ -56,8 +110,34 @@ func NewFromLaunch(ld *lti.Launch) (*Service, error) {
 
 // GetMembers fetches the full course roster, following pagination automatically.
 func (s *Service) GetMembers(ctx context.Context) ([]Member, error) {
-	var all []Member
-	pageURL := s.endpoint.ContextMembershipsURL
+	m, err := s.GetMemberships(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return m.Members, nil
+}
+
+// GetMemberships fetches the roster with its context, following pagination
+// automatically. An optional MembersQuery filters server-side by role, limit
+// and resource link (NRPS spec query parameters). To fetch incremental changes
+// later, request the returned DifferencesURL with GetMembershipsFrom.
+func (s *Service) GetMemberships(ctx context.Context, query ...MembersQuery) (*Memberships, error) {
+	startURL := s.endpoint.ContextMembershipsURL
+	if len(query) > 0 {
+		var err error
+		startURL, err = query[0].apply(startURL)
+		if err != nil {
+			return nil, fmt.Errorf("nrps: invalid memberships URL: %w", err)
+		}
+	}
+	return s.GetMembershipsFrom(ctx, startURL)
+}
+
+// GetMembershipsFrom fetches memberships starting at the given URL — either a
+// (possibly filtered) container URL or a DifferencesURL from an earlier call.
+func (s *Service) GetMembershipsFrom(ctx context.Context, startURL string) (*Memberships, error) {
+	result := &Memberships{}
+	pageURL := startURL
 
 	for pageURL != "" {
 		resp, err := s.conn.Request(ctx, http.MethodGet, pageURL, nil,
@@ -65,17 +145,24 @@ func (s *Service) GetMembers(ctx context.Context) ([]Member, error) {
 			connector.WithAccept("application/vnd.ims.lti-nrps.v2.membershipcontainer+json"),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("nrps: GetMembers request failed: %w", err)
+			return nil, fmt.Errorf("nrps: GetMemberships request failed: %w", err)
 		}
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("nrps: GetMembers returned %d: %s", resp.StatusCode, resp.Body)
+			return nil, fmt.Errorf("nrps: GetMemberships returned %d: %s", resp.StatusCode, resp.Body)
 		}
 		var page membershipsResponse
 		if err := json.Unmarshal(resp.Body, &page); err != nil {
 			return nil, fmt.Errorf("nrps: failed to parse memberships response: %w", err)
 		}
-		all = append(all, page.Members...)
+		if result.ID == "" {
+			result.ID = page.ID
+			result.Context = page.Context
+		}
+		result.Members = append(result.Members, page.Members...)
+		if diff := resp.LinkURL("differences"); diff != "" {
+			result.DifferencesURL = diff
+		}
 		pageURL = resp.NextPageURL()
 	}
-	return all, nil
+	return result, nil
 }

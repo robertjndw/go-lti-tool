@@ -105,9 +105,25 @@ func (SubmissionReviewMessageValidator) CanValidate(claims *lticore.LTIClaims) b
 }
 
 // Validate checks LTI-specific claims for an LtiSubmissionReviewRequest.
+// The Submission Review spec requires the for_user claim identifying whose
+// submission is being reviewed and the AGS endpoint claim with the lineitem
+// under review. resource_link is deliberately not required: standalone line
+// items are not coupled to a resource link.
 func (SubmissionReviewMessageValidator) Validate(claims *lticore.LTIClaims) error {
 	if err := validateVersion(lticore.MessageTypeSubmissionReview, claims); err != nil {
 		return err
 	}
-	return validateResourceLink(lticore.MessageTypeSubmissionReview, claims)
+	if claims.Roles == nil {
+		return fmt.Errorf("lti: %s missing 'roles' claim", lticore.MessageTypeSubmissionReview)
+	}
+	if claims.ForUser == nil {
+		return fmt.Errorf("lti: %s missing 'for_user' claim", lticore.MessageTypeSubmissionReview)
+	}
+	if claims.ForUser.UserID == "" {
+		return fmt.Errorf("lti: %s for_user.user_id is empty", lticore.MessageTypeSubmissionReview)
+	}
+	if claims.AGS == nil || claims.AGS.Lineitem == "" {
+		return fmt.Errorf("lti: %s missing AGS endpoint claim with 'lineitem'", lticore.MessageTypeSubmissionReview)
+	}
+	return nil
 }

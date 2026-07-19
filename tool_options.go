@@ -40,3 +40,13 @@ func WithKeySet(ks jwks.KeySetProvider) ToolOption {
 		t.keySet = ks
 	}
 }
+
+// WithAllowedRedirectHosts restricts the host of the target_link_uri login
+// parameter (which becomes the OIDC redirect_uri) to the given hosts.
+// Recommended in production: the login request is unsigned, so this prevents
+// the tool from forwarding attacker-chosen redirect targets to the platform.
+func WithAllowedRedirectHosts(hosts ...string) ToolOption {
+	return func(t *Tool) {
+		t.allowedRedirectHosts = hosts
+	}
+}

@@ -187,6 +187,17 @@ func (s *SimpleDatastore) FindRegistrationByIssuer(_ context.Context, issuer str
 	return reg, nil
 }
 
+func (s *SimpleDatastore) FindRegistration(ctx context.Context, issuer, clientID string) (*lti.Registration, error) {
+	reg, err := s.FindRegistrationByIssuer(ctx, issuer)
+	if err != nil {
+		return nil, err
+	}
+	if clientID != "" && reg.ClientID != clientID {
+		return nil, lti.ErrRegistrationNotFound
+	}
+	return reg, nil
+}
+
 func (s *SimpleDatastore) FindDeployment(_ context.Context, _, deploymentID string) (*lti.Deployment, error) {
 	// Accept any deployment ID for this example.
 	return &lti.Deployment{DeploymentID: deploymentID}, nil

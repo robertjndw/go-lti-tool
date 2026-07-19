@@ -37,11 +37,12 @@ func newPlatform(t *testing.T, registrationStatus int) *httptest.Server {
 		switch r.URL.Path {
 		case "/.well-known/openid-configuration":
 			cfg := dynreg.OpenIDConfiguration{
-				Issuer:                srv.URL,
-				AuthorizationEndpoint: srv.URL + "/auth",
-				RegistrationEndpoint:  srv.URL + "/register",
-				JWKSURL:               srv.URL + "/jwks",
-				TokenEndpoint:         srv.URL + "/token",
+				Issuer:                            srv.URL,
+				AuthorizationEndpoint:             srv.URL + "/auth",
+				RegistrationEndpoint:              srv.URL + "/register",
+				JWKSURL:                           srv.URL + "/jwks",
+				TokenEndpoint:                     srv.URL + "/token",
+				TokenEndpointAuthMethodsSupported: []string{"private_key_jwt"},
 			}
 			w.Header().Set("Content-Type", "application/json")
 			if err := json.NewEncoder(w).Encode(cfg); err != nil {
@@ -152,7 +153,7 @@ func TestHandler_NonHTTPSOpenIDConfigURL_AllowedByConfig(t *testing.T) {
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			switch req.URL.String() {
 			case "http://platform.example.com/.well-known/openid-configuration":
-				body := `{"issuer":"http://platform.example.com","registration_endpoint":"http://platform.example.com/register","jwks_uri":"http://platform.example.com/jwks","token_endpoint":"http://platform.example.com/token","authorization_endpoint":"http://platform.example.com/auth"}`
+				body := `{"issuer":"http://platform.example.com","registration_endpoint":"http://platform.example.com/register","jwks_uri":"http://platform.example.com/jwks","token_endpoint":"http://platform.example.com/token","authorization_endpoint":"http://platform.example.com/auth","token_endpoint_auth_methods_supported":["private_key_jwt"]}`
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Header:     make(http.Header),
@@ -259,11 +260,12 @@ func TestHandler_WithRegistrationToken(t *testing.T) {
 		switch r.URL.Path {
 		case "/.well-known/openid-configuration":
 			cfg := dynreg.OpenIDConfiguration{
-				Issuer:                "https://" + r.Host,
-				RegistrationEndpoint:  "https://" + r.Host + "/register",
-				JWKSURL:               "https://" + r.Host + "/jwks",
-				TokenEndpoint:         "https://" + r.Host + "/token",
-				AuthorizationEndpoint: "https://" + r.Host + "/auth",
+				Issuer:                            "https://" + r.Host,
+				RegistrationEndpoint:              "https://" + r.Host + "/register",
+				JWKSURL:                           "https://" + r.Host + "/jwks",
+				TokenEndpoint:                     "https://" + r.Host + "/token",
+				AuthorizationEndpoint:             "https://" + r.Host + "/auth",
+				TokenEndpointAuthMethodsSupported: []string{"private_key_jwt"},
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(cfg)
@@ -364,11 +366,12 @@ func TestRegister_WithDeploymentID(t *testing.T) {
 		switch r.URL.Path {
 		case "/.well-known/openid-configuration":
 			cfg := dynreg.OpenIDConfiguration{
-				Issuer:                "https://" + r.Host,
-				RegistrationEndpoint:  "https://" + r.Host + "/register",
-				JWKSURL:               "https://" + r.Host + "/jwks",
-				TokenEndpoint:         "https://" + r.Host + "/token",
-				AuthorizationEndpoint: "https://" + r.Host + "/auth",
+				Issuer:                            "https://" + r.Host,
+				RegistrationEndpoint:              "https://" + r.Host + "/register",
+				JWKSURL:                           "https://" + r.Host + "/jwks",
+				TokenEndpoint:                     "https://" + r.Host + "/token",
+				AuthorizationEndpoint:             "https://" + r.Host + "/auth",
+				TokenEndpointAuthMethodsSupported: []string{"private_key_jwt"},
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(cfg)
@@ -424,7 +427,7 @@ func TestRegister_NonHTTPS_AllowedByConfig(t *testing.T) {
 		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			switch req.URL.String() {
 			case "http://platform.example.com/.well-known/openid-configuration":
-				body := `{"issuer":"http://platform.example.com","registration_endpoint":"http://platform.example.com/register","jwks_uri":"http://platform.example.com/jwks","token_endpoint":"http://platform.example.com/token","authorization_endpoint":"http://platform.example.com/auth"}`
+				body := `{"issuer":"http://platform.example.com","registration_endpoint":"http://platform.example.com/register","jwks_uri":"http://platform.example.com/jwks","token_endpoint":"http://platform.example.com/token","authorization_endpoint":"http://platform.example.com/auth","token_endpoint_auth_methods_supported":["private_key_jwt"]}`
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Header:     make(http.Header),
@@ -498,11 +501,12 @@ func TestRequestFields(t *testing.T) {
 		switch r.URL.Path {
 		case "/.well-known/openid-configuration":
 			cfg := dynreg.OpenIDConfiguration{
-				Issuer:                "https://" + r.Host,
-				RegistrationEndpoint:  "https://" + r.Host + "/register",
-				JWKSURL:               "https://" + r.Host + "/jwks",
-				TokenEndpoint:         "https://" + r.Host + "/token",
-				AuthorizationEndpoint: "https://" + r.Host + "/auth",
+				Issuer:                            "https://" + r.Host,
+				RegistrationEndpoint:              "https://" + r.Host + "/register",
+				JWKSURL:                           "https://" + r.Host + "/jwks",
+				TokenEndpoint:                     "https://" + r.Host + "/token",
+				AuthorizationEndpoint:             "https://" + r.Host + "/auth",
+				TokenEndpointAuthMethodsSupported: []string{"private_key_jwt"},
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(cfg)

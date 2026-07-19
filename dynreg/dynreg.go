@@ -19,6 +19,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	lticore "github.com/robertjndw/go-lti-tool/internal/lticore"
@@ -238,7 +239,15 @@ func Register(ctx context.Context, cfg DynRegConfig, openidConfigURL, registrati
 		return nil, err
 	}
 
-	regReq := cfg.buildRequest()
+	// LTI service calls authenticate with private_key_jwt client assertions;
+	// a platform that does not support the method cannot work with this tool.
+	// OIDC Discovery defines an omitted token_endpoint_auth_methods_supported
+	// as client_secret_basic only, so absence is also a rejection.
+	if !slices.Contains(openidConfig.TokenEndpointAuthMethodsSupported, "private_key_jwt") {
+		return nil, fmt.Errorf("%w: platform does not support private_key_jwt token endpoint authentication", ErrRegistrationFailed)
+	}
+
+	regReq := cfg.buildRequest(openidConfig.ScopesSupported)
 	regResp, err := postRegistration(ctx, client, openidConfig.RegistrationEndpoint, registrationToken, regReq)
 	if err != nil {
 		return nil, err
@@ -283,7 +292,10 @@ func buildResult(openidConfig *OpenIDConfiguration, resp *ClientRegistrationResp
 }
 
 // buildRequest assembles a ClientRegistrationRequest from the Config.
-func (cfg *DynRegConfig) buildRequest() *ClientRegistrationRequest {
+// platformScopes, when non-empty, limits the requested scopes to those the
+// platform advertises — the LTI DR spec says tools should not request
+// unsupported scopes, and some platforms reject registrations that do.
+func (cfg *DynRegConfig) buildRequest(platformScopes []string) *ClientRegistrationRequest {
 	return &ClientRegistrationRequest{
 		ApplicationType:         "web",
 		GrantTypes:              []string{"client_credentials", "implicit"},
@@ -293,7 +305,7 @@ func (cfg *DynRegConfig) buildRequest() *ClientRegistrationRequest {
 		ClientName:              cfg.ToolName,
 		JWKSURL:                 cfg.JWKSURL,
 		TokenEndpointAuthMethod: "private_key_jwt",
-		Scope:                   strings.Join(cfg.scopes(), " "),
+		Scope:                   strings.Join(cfg.scopes(platformScopes), " "),
 		LogoURI:                 cfg.LogoURI,
 		Contacts:                cfg.Contacts,
 		ClientURI:               cfg.ClientURI,
@@ -311,16 +323,21 @@ func (cfg *DynRegConfig) buildRequest() *ClientRegistrationRequest {
 	}
 }
 
-// scopes returns the configured scopes, always prepending "openid".
-func (cfg *DynRegConfig) scopes() []string {
+// scopes returns the configured scopes, always prepending "openid" and
+// dropping scopes the platform does not advertise (when it advertises any).
+func (cfg *DynRegConfig) scopes(platformScopes []string) []string {
 	seen := make(map[string]bool, len(cfg.Scopes)+1)
 	out := []string{"openid"}
 	seen["openid"] = true
 	for _, s := range cfg.Scopes {
-		if !seen[s] {
-			out = append(out, s)
-			seen[s] = true
+		if seen[s] {
+			continue
 		}
+		if len(platformScopes) > 0 && !slices.Contains(platformScopes, s) {
+			continue
+		}
+		out = append(out, s)
+		seen[s] = true
 	}
 	return out
 }

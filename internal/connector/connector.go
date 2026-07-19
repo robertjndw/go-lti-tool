@@ -165,20 +165,58 @@ type ServiceResponse struct {
 	StatusCode int
 	Headers    http.Header
 	Body       []byte
+
+	// RequestURL is the URL the request was sent to, used to resolve relative
+	// URLs in Link headers.
+	RequestURL *url.URL
 }
 
 // NextPageURL extracts the URL from a rel="next" Link header, returning an empty
 // string if no next page exists.
 func (sr *ServiceResponse) NextPageURL() string {
-	return parseLinkNext(sr.Headers.Get("Link"))
+	return sr.LinkURL("next")
 }
 
-// linkNextRe extracts the URL from a Link header with rel="next".
-var linkNextRe = regexp.MustCompile(`<([^>]+)>;\s*rel="next"`)
+// LinkURL extracts the URL for the given rel value from the response's Link
+// headers (e.g. "next", "differences"). All Link header values are scanned and
+// relative URLs are resolved against the request URL. Returns "" if absent.
+func (sr *ServiceResponse) LinkURL(rel string) string {
+	for _, header := range sr.Headers.Values("Link") {
+		if raw := parseLinkRel(header, rel); raw != "" {
+			return sr.resolveURL(raw)
+		}
+	}
+	return ""
+}
 
-func parseLinkNext(header string) string {
-	if m := linkNextRe.FindStringSubmatch(header); len(m) == 2 {
-		return m[1]
+func (sr *ServiceResponse) resolveURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	if u.IsAbs() || sr.RequestURL == nil {
+		return raw
+	}
+	return sr.RequestURL.ResolveReference(u).String()
+}
+
+// linkRe matches one Link header entry: a <URL> followed by its parameters.
+var linkRe = regexp.MustCompile(`<([^>]*)>([^,]*)`)
+
+// parseLinkRel extracts the URL whose parameters include rel="<rel>" (with or
+// without quotes) from a single Link header value.
+func parseLinkRel(header, rel string) string {
+	for _, m := range linkRe.FindAllStringSubmatch(header, -1) {
+		for _, param := range strings.Split(m[2], ";") {
+			key, value, ok := strings.Cut(strings.TrimSpace(param), "=")
+			if !ok || !strings.EqualFold(strings.TrimSpace(key), "rel") {
+				continue
+			}
+			value = strings.Trim(strings.TrimSpace(value), `"`)
+			if strings.EqualFold(value, rel) {
+				return m[1]
+			}
+		}
 	}
 	return ""
 }
@@ -242,6 +280,7 @@ func (c *Connector) Request(ctx context.Context, method, serviceURL string, body
 		StatusCode: resp.StatusCode,
 		Headers:    resp.Header,
 		Body:       respBody,
+		RequestURL: resp.Request.URL,
 	}, nil
 }
 

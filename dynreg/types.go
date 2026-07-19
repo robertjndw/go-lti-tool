@@ -3,17 +3,17 @@ package dynreg
 // OpenIDConfiguration represents the OpenID Provider Configuration returned
 // by a platform's well-known endpoint.
 type OpenIDConfiguration struct {
-	Issuer                                     string             `json:"issuer"`
-	AuthorizationEndpoint                      string             `json:"authorization_endpoint"`
-	RegistrationEndpoint                       string             `json:"registration_endpoint"`
-	JWKSURL                                    string             `json:"jwks_uri"`
-	TokenEndpoint                              string             `json:"token_endpoint"`
-	TokenEndpointAuthMethodsSupported          []string           `json:"token_endpoint_auth_methods_supported"`
-	TokenEndpointAuthSigningAlgValuesSupported []string           `json:"token_endpoint_auth_signing_alg_values_supported"`
-	ScopesSupported                            []string           `json:"scopes_supported"`
-	ResponseTypesSupported                     []string           `json:"response_types_supported"`
-	IDTokenSigningAlgValuesSupported           []string           `json:"id_token_signing_alg_values_supported"`
-	SubjectTypesSupported                      []string           `json:"subject_types_supported"`
+	Issuer                                     string   `json:"issuer"`
+	AuthorizationEndpoint                      string   `json:"authorization_endpoint"`
+	RegistrationEndpoint                       string   `json:"registration_endpoint"`
+	JWKSURL                                    string   `json:"jwks_uri"`
+	TokenEndpoint                              string   `json:"token_endpoint"`
+	TokenEndpointAuthMethodsSupported          []string `json:"token_endpoint_auth_methods_supported"`
+	TokenEndpointAuthSigningAlgValuesSupported []string `json:"token_endpoint_auth_signing_alg_values_supported"`
+	ScopesSupported                            []string `json:"scopes_supported"`
+	ResponseTypesSupported                     []string `json:"response_types_supported"`
+	IDTokenSigningAlgValuesSupported           []string `json:"id_token_signing_alg_values_supported"`
+	SubjectTypesSupported                      []string `json:"subject_types_supported"`
 	// AuthorizationServer, if set, is used as the aud claim in token-endpoint
 	// client assertions instead of TokenEndpoint.
 	AuthorizationServer      string             `json:"authorization_server,omitempty"`
@@ -58,8 +58,8 @@ type ClientRegistrationRequest struct {
 // LTIToolConfig is the LTI-specific tool configuration embedded in both the
 // registration request and response.
 type LTIToolConfig struct {
-	Domain           string            `json:"domain"`
-	SecondaryDomains []string          `json:"secondary_domains,omitempty"`
+	Domain           string   `json:"domain"`
+	SecondaryDomains []string `json:"secondary_domains,omitempty"`
 	// DeploymentID is set by the platform in the response when it combines
 	// registration and deployment creation into a single step.
 	DeploymentID     string            `json:"deployment_id,omitempty"`
@@ -67,8 +67,8 @@ type LTIToolConfig struct {
 	CustomParameters map[string]string `json:"custom_parameters,omitempty"`
 	Description      string            `json:"description,omitempty"`
 	// Claims lists the OIDC/LTI claims the tool requires (e.g. "sub", "email").
-	Claims           []string          `json:"claims"`
-	Messages         []ToolMessage     `json:"messages,omitempty"`
+	Claims   []string      `json:"claims"`
+	Messages []ToolMessage `json:"messages,omitempty"`
 }
 
 // ToolMessage describes one message type (placement) the tool supports.
@@ -86,16 +86,16 @@ type ToolMessage struct {
 // endpoint. It mirrors the request, with platform-assigned values (client_id,
 // possibly deployment_id) added.
 type ClientRegistrationResponse struct {
-	ClientID                string         `json:"client_id"`
-	ApplicationType         string         `json:"application_type"`
-	GrantTypes              []string       `json:"grant_types"`
-	ResponseTypes           []string       `json:"response_types"`
-	RedirectURIs            []string       `json:"redirect_uris"`
-	InitiateLoginURI        string         `json:"initiate_login_uri"`
-	ClientName              string         `json:"client_name"`
-	JWKSURL                 string         `json:"jwks_uri"`
-	TokenEndpointAuthMethod string         `json:"token_endpoint_auth_method"`
-	Scope                   string         `json:"scope"`
+	ClientID                string   `json:"client_id"`
+	ApplicationType         string   `json:"application_type"`
+	GrantTypes              []string `json:"grant_types"`
+	ResponseTypes           []string `json:"response_types"`
+	RedirectURIs            []string `json:"redirect_uris"`
+	InitiateLoginURI        string   `json:"initiate_login_uri"`
+	ClientName              string   `json:"client_name"`
+	JWKSURL                 string   `json:"jwks_uri"`
+	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+	Scope                   string   `json:"scope"`
 	// RegistrationClientURI and RegistrationAccessToken are present when the
 	// platform supports subsequent GET/PUT of the registration record.
 	RegistrationClientURI   string         `json:"registration_client_uri,omitempty"`

@@ -215,33 +215,62 @@ func TestSubmissionReviewValidator_CanValidate(t *testing.T) {
 	}
 }
 
-// Spec: A valid LtiSubmissionReviewRequest must pass validation.
+// Spec: A valid LtiSubmissionReviewRequest must pass validation. resource_link
+// is deliberately absent: standalone line items are not coupled to a resource
+// link, so the validator must not require it.
 func TestSubmissionReviewValidator_Valid_Passes(t *testing.T) {
 	v := launch.SubmissionReviewMessageValidator{}
 	c := &lti.LTIClaims{
-		Subject:      "user-1",
-		MessageType:  lti.MessageTypeSubmissionReview,
-		Version:      lti.LTIVersion,
-		Roles:        []string{lti.RoleInstructor},
-		ResourceLink: &lti.ResourceLink{ID: "link-1"},
+		Subject:     "user-1",
+		MessageType: lti.MessageTypeSubmissionReview,
+		Version:     lti.LTIVersion,
+		Roles:       []string{lti.RoleInstructor},
+		ForUser:     &lti.ForUserClaim{UserID: "student-9"},
+		AGS:         &lti.AGSClaim{Lineitem: "https://platform.example.com/lineitems/1"},
 	}
 	if err := v.Validate(c); err != nil {
 		t.Errorf("expected nil error, got %v", err)
 	}
 }
 
-// Spec: resource_link.id is required for LtiSubmissionReviewRequest.
-func TestSubmissionReviewValidator_MissingResourceLink_Fails(t *testing.T) {
+// Submission Review spec: the for_user claim is required.
+func TestSubmissionReviewValidator_MissingForUser_Fails(t *testing.T) {
 	v := launch.SubmissionReviewMessageValidator{}
 	c := &lti.LTIClaims{
-		Subject:      "user-1",
-		MessageType:  lti.MessageTypeSubmissionReview,
-		Version:      lti.LTIVersion,
-		Roles:        []string{},
-		ResourceLink: nil,
+		Subject:     "user-1",
+		MessageType: lti.MessageTypeSubmissionReview,
+		Version:     lti.LTIVersion,
+		Roles:       []string{lti.RoleInstructor},
+		AGS:         &lti.AGSClaim{Lineitem: "https://platform.example.com/lineitems/1"},
 	}
 	if err := v.Validate(c); err == nil {
-		t.Error("expected error for missing resource_link")
+		t.Error("expected error for missing for_user claim")
+	}
+
+	c.ForUser = &lti.ForUserClaim{}
+	if err := v.Validate(c); err == nil {
+		t.Error("expected error for empty for_user.user_id")
+	}
+}
+
+// Submission Review spec: the AGS endpoint claim with lineitem is required —
+// it identifies the line item whose submission is under review.
+func TestSubmissionReviewValidator_MissingLineitem_Fails(t *testing.T) {
+	v := launch.SubmissionReviewMessageValidator{}
+	c := &lti.LTIClaims{
+		Subject:     "user-1",
+		MessageType: lti.MessageTypeSubmissionReview,
+		Version:     lti.LTIVersion,
+		Roles:       []string{},
+		ForUser:     &lti.ForUserClaim{UserID: "student-9"},
+	}
+	if err := v.Validate(c); err == nil {
+		t.Error("expected error for missing AGS claim")
+	}
+
+	c.AGS = &lti.AGSClaim{Lineitems: "https://platform.example.com/lineitems"}
+	if err := v.Validate(c); err == nil {
+		t.Error("expected error for AGS claim without lineitem")
 	}
 }
 
@@ -300,15 +329,17 @@ func TestSubmissionReviewValidator_NilRoles_Fails(t *testing.T) {
 	}
 }
 
-// Spec §3: sub is optional; anonymous submission review launches are permitted.
+// Spec §3: sub is optional; anonymous submission review launches are permitted
+// (the for_user claim is still required — it identifies the reviewed student).
 func TestSubmissionReviewValidator_MissingSub_Allowed(t *testing.T) {
 	v := launch.SubmissionReviewMessageValidator{}
 	c := &lti.LTIClaims{
-		Subject:      "",
-		MessageType:  lti.MessageTypeSubmissionReview,
-		Version:      lti.LTIVersion,
-		Roles:        []string{},
-		ResourceLink: &lti.ResourceLink{ID: "link-1"},
+		Subject:     "",
+		MessageType: lti.MessageTypeSubmissionReview,
+		Version:     lti.LTIVersion,
+		Roles:       []string{},
+		ForUser:     &lti.ForUserClaim{UserID: "student-9"},
+		AGS:         &lti.AGSClaim{Lineitem: "https://platform.example.com/lineitems/1"},
 	}
 	if err := v.Validate(c); err != nil {
 		t.Errorf("anonymous submission review launch must be allowed, got %v", err)

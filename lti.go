@@ -29,12 +29,15 @@ type (
 	AGSClaim            = lticore.AGSClaim
 	NRPSClaim           = lticore.NRPSClaim
 	DeepLinkingSettings = lticore.DeepLinkingSettings
+	ForUserClaim        = lticore.ForUserClaim
+	LTI11Claim          = lticore.LTI11Claim
 
 	Registration = lticore.Registration
 	Deployment   = lticore.Deployment
 	Launch       = lticore.Launch
 
 	Datastore          = lticore.Datastore
+	RegistrationFinder = lticore.RegistrationFinder
 	RegistrationWriter = lticore.RegistrationWriter
 	NonceStore         = lticore.NonceStore
 	LaunchDataStore    = lticore.LaunchDataStore

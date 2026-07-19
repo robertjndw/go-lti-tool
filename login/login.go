@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 
 	lticore "github.com/robertjndw/go-lti-tool/internal/lticore"
 	"github.com/robertjndw/go-lti-tool/internal/randutil"
@@ -29,6 +30,13 @@ type Config struct {
 	// CookieHandler reads/writes state cookies. Defaults to lticore.DefaultCookieHandler
 	// if nil.
 	CookieHandler lticore.CookieHandler
+
+	// AllowedRedirectHosts optionally restricts the host of the (unsigned)
+	// target_link_uri login parameter, which is forwarded to the platform as the
+	// OIDC redirect_uri. Platforms must reject unregistered redirect URIs, but
+	// validating here follows the IMS security guidance of never trusting the
+	// unsigned login request. Empty means no restriction.
+	AllowedRedirectHosts []string
 }
 
 func (c *Config) cookieHandler() lticore.CookieHandler {
@@ -79,14 +87,15 @@ func HandleLogin(ctx context.Context, cfg Config, r *http.Request) (redirectURL 
 	clientID := r.FormValue("client_id")
 	ltiDeploymentID := r.FormValue("lti_deployment_id")
 
-	reg, err := cfg.Datastore.FindRegistrationByIssuer(ctx, iss)
-	if err != nil {
-		return "", nil, fmt.Errorf("lti/login: %w", err)
+	if err := validateTargetLinkURI(targetLinkURI, cfg.AllowedRedirectHosts); err != nil {
+		return "", nil, err
 	}
 
-	// If the request supplies a client_id, verify it matches the registration.
-	if clientID != "" && clientID != reg.ClientID {
-		return "", nil, fmt.Errorf("lti/login: client_id mismatch")
+	// Resolve the registration by issuer and, when the platform supplied it,
+	// client_id — issuers like cloud Canvas host many registrations.
+	reg, err := lticore.FindRegistration(ctx, cfg.Datastore, iss, clientID)
+	if err != nil {
+		return "", nil, fmt.Errorf("lti/login: %w", err)
 	}
 
 	state, err := randutil.Token(32)
@@ -141,6 +150,31 @@ func HandleLogin(ctx context.Context, cfg Config, r *http.Request) (redirectURL 
 	authURL.RawQuery = params.Encode()
 
 	return authURL.String(), cookieList, nil
+}
+
+// validateTargetLinkURI checks the unsigned target_link_uri parameter: it must
+// parse as an absolute http(s) URL and, when allowedHosts is non-empty, its
+// host must be in the list.
+func validateTargetLinkURI(targetLinkURI string, allowedHosts []string) error {
+	u, err := url.Parse(targetLinkURI)
+	if err != nil {
+		return fmt.Errorf("lti/login: invalid target_link_uri: %w", err)
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return fmt.Errorf("lti/login: target_link_uri must be an absolute http(s) URL")
+	}
+	if u.Host == "" {
+		return fmt.Errorf("lti/login: target_link_uri is missing a host")
+	}
+	if len(allowedHosts) == 0 {
+		return nil
+	}
+	for _, h := range allowedHosts {
+		if strings.EqualFold(u.Host, h) || strings.EqualFold(u.Hostname(), h) {
+			return nil
+		}
+	}
+	return fmt.Errorf("lti/login: target_link_uri host %q is not in the allowed redirect hosts", u.Host)
 }
 
 // cookieRecorder is a minimal http.ResponseWriter that only captures Set-Cookie calls.

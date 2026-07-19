@@ -25,4 +25,26 @@ type Lineitem struct {
 
 	// ResourceLinkID scopes the line item to a specific resource link when present.
 	ResourceLinkID string `json:"resourceLinkId,omitempty"`
+
+	// GradesReleased indicates whether grades are visible to learners.
+	// Nil means the platform default; use a *bool so false survives serialization.
+	GradesReleased *bool `json:"gradesReleased,omitempty"`
+
+	// SubmissionReview configures the submission review launch for this line item
+	// (LTI Submission Review spec).
+	SubmissionReview *SubmissionReview `json:"submissionReview,omitempty"`
+}
+
+// SubmissionReview describes how a platform may launch the tool in submission
+// review mode for a line item. (The spec's earlier reviewableStatus property
+// was removed from the Submission Review specification in 2022.)
+type SubmissionReview struct {
+	// Label overrides the platform's default review link label.
+	Label string `json:"label,omitempty"`
+
+	// URL overrides the resource link's target for review launches.
+	URL string `json:"url,omitempty"`
+
+	// Custom adds custom parameters to review launches.
+	Custom map[string]string `json:"custom,omitempty"`
 }

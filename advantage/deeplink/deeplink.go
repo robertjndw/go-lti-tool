@@ -17,6 +17,7 @@ package deeplink
 import (
 	"fmt"
 	"html/template"
+	"slices"
 	"strings"
 	"time"
 
@@ -30,6 +31,18 @@ type Builder struct {
 	reg          *lti.Registration
 	deploymentID string
 	settings     *lti.DeepLinkingSettings
+
+	// Msg is an optional message the platform should show the user after a
+	// successful content selection (dl claim "msg").
+	Msg string
+	// Log is an optional message for the platform's logs (dl claim "log").
+	Log string
+	// ErrorMsg is an optional error message shown to the user when the tool
+	// could not fulfil the selection (dl claim "errormsg").
+	ErrorMsg string
+	// ErrorLog is an optional error message for the platform's logs (dl claim
+	// "errorlog").
+	ErrorLog string
 }
 
 // New creates a Builder from the given registration, deployment ID and deep linking settings.
@@ -54,9 +67,30 @@ func NewFromLaunch(ld *lti.Launch) (*Builder, error) {
 	return New(ld.Registration, deploymentID, ld.Claims.DeepLinkingSettings), nil
 }
 
+// validateResources checks the selection against the platform's deep linking
+// settings so an invalid response is caught before it is signed and POSTed
+// (platforms reject such responses with opaque errors).
+func (b *Builder) validateResources(resources []Resource) error {
+	if len(resources) > 1 && !b.settings.AcceptMultiple {
+		return fmt.Errorf("deeplink: platform does not accept multiple content items (%d given)", len(resources))
+	}
+	for i, r := range resources {
+		if r.Type == "" {
+			return fmt.Errorf("deeplink: resource %d has no type", i)
+		}
+		if !slices.Contains(b.settings.AcceptTypes, r.Type) {
+			return fmt.Errorf("deeplink: resource %d type %q is not in the platform's accept_types %v", i, r.Type, b.settings.AcceptTypes)
+		}
+	}
+	return nil
+}
+
 // ResponseJWT builds and signs an LtiDeepLinkingResponse JWT containing the
 // selected content items.
 func (b *Builder) ResponseJWT(resources []Resource) (string, error) {
+	if err := b.validateResources(resources); err != nil {
+		return "", err
+	}
 	nonce, err := randomNonce()
 	if err != nil {
 		return "", fmt.Errorf("deeplink: failed to generate nonce: %w", err)
@@ -76,6 +110,18 @@ func (b *Builder) ResponseJWT(resources []Resource) (string, error) {
 
 	if b.settings.Data != "" {
 		claims[lti.ClaimPrefixDL+"data"] = b.settings.Data
+	}
+	if b.Msg != "" {
+		claims[lti.ClaimPrefixDL+"msg"] = b.Msg
+	}
+	if b.Log != "" {
+		claims[lti.ClaimPrefixDL+"log"] = b.Log
+	}
+	if b.ErrorMsg != "" {
+		claims[lti.ClaimPrefixDL+"errormsg"] = b.ErrorMsg
+	}
+	if b.ErrorLog != "" {
+		claims[lti.ClaimPrefixDL+"errorlog"] = b.ErrorLog
 	}
 
 	if b.reg.ToolPrivateKey == nil {

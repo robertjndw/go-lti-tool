@@ -102,6 +102,12 @@ type LineItemProperty struct {
 // GradesReleased: deeplink.Bool(false), ...}.
 func Bool(v bool) *bool { return &v }
 
+// String returns a pointer to v, for filling optional string fields that
+// distinguish "absent" from an explicit empty value, such as
+// lti.DeepLinkingSettings.Data: deeplink.New(reg, deploymentID,
+// &lti.DeepLinkingSettings{Data: deeplink.String(""), ...}).
+func String(v string) *string { return &v }
+
 // Presentation controls how the resource content is rendered.
 type Presentation struct {
 	// DocumentTarget specifies the rendering target (e.g. "iframe", "window").

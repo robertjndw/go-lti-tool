@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -156,6 +157,38 @@ func TestLaunch_PlatformErrorResponse_SurfacedAsTypedError(t *testing.T) {
 	}
 }
 
+// OIDC Core requires the client to verify state on an authorization error just
+// as it does on a successful response. Otherwise an attacker can inject an
+// unbound error response and terminate a user's launch transaction.
+func TestLaunch_PlatformErrorResponse_StillRequiresValidState(t *testing.T) {
+	tests := map[string]func(*fixture, url.Values){
+		"missing state": func(_ *fixture, form url.Values) {
+			form.Del("state")
+		},
+		"state cookie mismatch": func(f *fixture, form url.Values) {
+			f.setStateCookie("different-state")
+		},
+	}
+
+	for name, setup := range tests {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			form := url.Values{
+				"state": {"state-platform-error"},
+				"error": {"login_required"},
+			}
+			setup(f, form)
+			req := httptest.NewRequest(http.MethodPost, "/lti/launch", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+			_, err := launch.ValidateLaunch(context.Background(), f.cfg(), req)
+			if !errors.Is(err, lti.ErrInvalidState) {
+				t.Errorf("expected ErrInvalidState, got %v", err)
+			}
+		})
+	}
+}
+
 // Normal launches (no "error" parameter) must be unaffected.
 func TestLaunch_NoErrorParameter_NormalLaunchUnaffected(t *testing.T) {
 	f := newFixture(t)
@@ -283,6 +316,33 @@ func TestLaunch_IssuerMismatch_Rejected(t *testing.T) {
 	_, err := f.validate(t, state, token)
 	if err == nil {
 		t.Error("expected error for iss mismatch, got nil")
+	}
+}
+
+// Security Framework §5.1.3 requires iss to be a case-sensitive HTTPS URL
+// with scheme and host and without query or fragment components. A matching
+// local registration does not make a syntactically invalid issuer valid.
+func TestLaunch_InvalidIssuerURL_RejectedEvenWhenRegistered(t *testing.T) {
+	for name, issuer := range map[string]string{
+		"http":     "http://platform.example.com",
+		"query":    "https://platform.example.com?tenant=one",
+		"fragment": "https://platform.example.com#tenant-one",
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			f.reg.Issuer = issuer
+			if err := f.ds.AddRegistration(t.Context(), *f.reg); err != nil {
+				t.Fatalf("register fixture: %v", err)
+			}
+			nonce, state := "nonce-invalid-issuer-"+name, "state-invalid-issuer-"+name
+			f.storeNonce(t, nonce)
+			f.setStateCookie(state)
+
+			_, err := f.validate(t, state, f.validToken(t, nonce, nil))
+			if !errors.Is(err, lti.ErrInvalidClaims) {
+				t.Errorf("expected ErrInvalidClaims, got %v", err)
+			}
+		})
 	}
 }
 

@@ -99,6 +99,39 @@ func TestAGS_SubmitScore_AcceptsAllNormativeISO8601Offsets(t *testing.T) {
 	}
 }
 
+// Both progress properties are closed vocabularies. Test every normative
+// value so adding validation cannot accidentally narrow the specification.
+func TestAGS_SubmitScore_AcceptsAllProgressVocabularyValues(t *testing.T) {
+	activityValues := []string{
+		ags.ActivityProgressInitialized,
+		ags.ActivityProgressStarted,
+		ags.ActivityProgressInProgress,
+		ags.ActivityProgressSubmitted,
+		ags.ActivityProgressCompleted,
+	}
+	gradingValues := []string{
+		ags.GradingProgressFullyGraded,
+		ags.GradingProgressPending,
+		ags.GradingProgressPendingManual,
+		ags.GradingProgressFailed,
+		ags.GradingProgressNotReady,
+	}
+	for _, activity := range activityValues {
+		for _, grading := range gradingValues {
+			name := activity + "/" + grading
+			t.Run(name, func(t *testing.T) {
+				svc, _, serviceURL := newScoreService(t, http.StatusNoContent)
+				score := validConformanceScore()
+				score.ActivityProgress = activity
+				score.GradingProgress = grading
+				if err := svc.SubmitScore(context.Background(), serviceURL+"/lineitems/1", score); err != nil {
+					t.Errorf("SubmitScore rejected normative progress values: %v", err)
+				}
+			})
+		}
+	}
+}
+
 // scoringUserId is part of both Score and Result and is needed by submission
 // review workflows where the grader differs from the learner.
 func TestAGS_ScoringUserIDSchema(t *testing.T) {
@@ -268,6 +301,28 @@ func TestAGS_LineitemWritesRejectInvalidSchemaBeforeSending(t *testing.T) {
 			}
 			if *requests != 0 {
 				t.Error("invalid line item must be rejected before network I/O")
+			}
+		})
+	}
+}
+
+// Line-item availability dates use ISO 8601 with a required timezone but do
+// not require fractional seconds. Z and both offset spellings are valid.
+func TestAGS_LineitemWritesAcceptAllNormativeDateTimeForms(t *testing.T) {
+	for _, timestamp := range []string{
+		"2026-01-01T00:00:00Z",
+		"2026-01-01T00:00:00.123Z",
+		"2026-01-01T00:00:00+00:00",
+		"2026-01-01T00:00:00+00",
+	} {
+		t.Run(timestamp, func(t *testing.T) {
+			svc, _, _ := newScoreService(t, http.StatusOK)
+			item := ags.Lineitem{
+				Label: "Quiz", ScoreMaximum: 100,
+				StartDateTime: timestamp, EndDateTime: timestamp,
+			}
+			if _, err := svc.CreateLineitem(context.Background(), item); err != nil {
+				t.Errorf("CreateLineitem rejected normative datetime %q: %v", timestamp, err)
 			}
 		})
 	}

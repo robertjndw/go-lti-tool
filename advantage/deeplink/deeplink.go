@@ -305,6 +305,13 @@ func (b *Builder) ResponseJWT(resources []Resource) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("deeplink: failed to generate nonce: %w", err)
 	}
+	// A nil resources slice must not be serialized as JSON null: content_items
+	// is a DL 2.0 array-typed claim, so an empty selection is an empty array.
+	contentItems := resources
+	if contentItems == nil {
+		contentItems = []Resource{}
+	}
+
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"iss":                               b.reg.ClientID,
@@ -315,11 +322,11 @@ func (b *Builder) ResponseJWT(resources []Resource) (string, error) {
 		lti.ClaimPrefix + "message_type":    lti.MessageTypeDeepLinkingResponse,
 		lti.ClaimPrefix + "version":         lti.LTIVersion,
 		lti.ClaimPrefix + "deployment_id":   b.deploymentID,
-		lti.ClaimPrefixDL + "content_items": resources,
+		lti.ClaimPrefixDL + "content_items": contentItems,
 	}
 
-	if b.settings.Data != "" {
-		claims[lti.ClaimPrefixDL+"data"] = b.settings.Data
+	if b.settings.Data != nil {
+		claims[lti.ClaimPrefixDL+"data"] = *b.settings.Data
 	}
 	if b.Msg != "" {
 		claims[lti.ClaimPrefixDL+"msg"] = b.Msg

@@ -130,7 +130,7 @@ func (s *Service) GetMemberships(ctx context.Context, query ...MembersQuery) (*M
 			return nil, fmt.Errorf("nrps: invalid memberships URL: %w", err)
 		}
 	}
-	return s.GetMembershipsFrom(ctx, startURL)
+	return s.fetchMemberships(ctx, startURL, false)
 }
 
 // validateMembershipsPage checks a decoded membership container page against
@@ -138,7 +138,12 @@ func (s *Service) GetMemberships(ctx context.Context, query ...MembersQuery) (*M
 // container is never exposed to callers as a valid (if sparse) roster.
 // A nil Members/Roles slice means the JSON key was absent (a schema
 // violation); an empty-but-present array is a valid value.
-func validateMembershipsPage(page membershipsResponse) error {
+//
+// Deleted is reserved for the differences response profile: "A normal
+// request for a memberships list will only return current memberships and
+// hence none will have a status of Deleted" (NRPS 2.0). allowDeleted must
+// only be true when startURL is a differences URL.
+func validateMembershipsPage(page membershipsResponse, allowDeleted bool) error {
 	if page.ID == "" {
 		return fmt.Errorf("nrps: membership container missing 'id'")
 	}
@@ -156,7 +161,11 @@ func validateMembershipsPage(page membershipsResponse) error {
 			return fmt.Errorf("nrps: member %d missing 'roles'", i)
 		}
 		switch m.Status {
-		case "", MemberStatusActive, MemberStatusInactive, MemberStatusDeleted:
+		case "", MemberStatusActive, MemberStatusInactive:
+		case MemberStatusDeleted:
+			if !allowDeleted {
+				return fmt.Errorf("nrps: member %d has status %q, which is only valid in a differences response", i, MemberStatusDeleted)
+			}
 		default:
 			return fmt.Errorf("nrps: member %d has invalid status %q", i, m.Status)
 		}
@@ -166,7 +175,17 @@ func validateMembershipsPage(page membershipsResponse) error {
 
 // GetMembershipsFrom fetches memberships starting at the given URL — either a
 // (possibly filtered) container URL or a DifferencesURL from an earlier call.
+// Deleted-status members are accepted, matching the differences response
+// profile this method is documented for.
 func (s *Service) GetMembershipsFrom(ctx context.Context, startURL string) (*Memberships, error) {
+	return s.fetchMemberships(ctx, startURL, true)
+}
+
+// fetchMemberships fetches memberships starting at the given URL, following
+// pagination automatically. allowDeleted controls whether a Deleted member
+// status is accepted (the differences response profile) or rejected (the
+// normal roster profile).
+func (s *Service) fetchMemberships(ctx context.Context, startURL string, allowDeleted bool) (*Memberships, error) {
 	result := &Memberships{}
 	pageURL := startURL
 
@@ -185,7 +204,7 @@ func (s *Service) GetMembershipsFrom(ctx context.Context, startURL string) (*Mem
 		if err := json.Unmarshal(resp.Body, &page); err != nil {
 			return nil, fmt.Errorf("nrps: failed to parse memberships response: %w", err)
 		}
-		if err := validateMembershipsPage(page); err != nil {
+		if err := validateMembershipsPage(page, allowDeleted); err != nil {
 			return nil, err
 		}
 		if result.ID == "" {

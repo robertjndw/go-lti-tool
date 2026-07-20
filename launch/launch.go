@@ -183,8 +183,15 @@ func ValidateLaunch(ctx context.Context, cfg Config, r *http.Request) (*lticore.
 	// OIDC Core §3.1.2.6: the platform may POST an error response instead of
 	// an id_token (e.g. the user declined consent, or login_required could
 	// not be satisfied silently). Surface it as a typed error rather than
-	// falling through to the generic "missing id_token" message.
+	// falling through to the generic "missing id_token" message. State must
+	// still be validated first: an authorization error is as much a part of
+	// the OIDC transaction as a success response, and skipping that check
+	// would let an attacker inject an unbound error response to terminate a
+	// user's in-flight launch (a CSRF-style attack on the error path).
 	if errCode := r.FormValue("error"); errCode != "" {
+		if _, err := validateState(r, state, cfg.cookieHandler()); err != nil {
+			return nil, err
+		}
 		return nil, &lticore.PlatformError{Code: errCode, Description: r.FormValue("error_description")}
 	}
 
@@ -497,6 +504,12 @@ func validateOIDCClaims(claims *lticore.LTIClaims, reg *lticore.Registration, cf
 	if claims.Issuer != reg.Issuer {
 		return fmt.Errorf("%w: iss does not match registration", lticore.ErrInvalidClaims)
 	}
+	// Security Framework §5.1.2: iss must be an https URL with scheme, host,
+	// and no query or fragment component. A registration matching a
+	// syntactically invalid issuer does not make the issuer valid.
+	if !isCleanHTTPSURL(claims.Issuer) {
+		return fmt.Errorf("%w: iss must be an https URL with no query or fragment", lticore.ErrInvalidClaims)
+	}
 	if !claims.Audience.Contains(reg.ClientID) {
 		return fmt.Errorf("%w: aud does not contain client_id", lticore.ErrInvalidClaims)
 	}
@@ -578,21 +591,23 @@ func isStandardContextType(t string) bool {
 // are only meaningful once the token is otherwise trusted: identifier length
 // bounds, required members of optional claim objects, and closed vocabularies.
 func validateCoreClaimSchema(claims *lticore.LTIClaims) error {
-	if len(claims.Subject) > maxIdentifierLength {
-		return fmt.Errorf("%w: sub exceeds %d characters", lticore.ErrInvalidClaims, maxIdentifierLength)
+	if err := validateIdentifier("sub", claims.Subject); err != nil {
+		return err
 	}
-	if len(claims.DeploymentID) > maxIdentifierLength {
-		return fmt.Errorf("%w: deployment_id exceeds %d characters", lticore.ErrInvalidClaims, maxIdentifierLength)
+	if err := validateIdentifier("deployment_id", claims.DeploymentID); err != nil {
+		return err
 	}
-	if claims.ResourceLink != nil && len(claims.ResourceLink.ID) > maxIdentifierLength {
-		return fmt.Errorf("%w: resource_link.id exceeds %d characters", lticore.ErrInvalidClaims, maxIdentifierLength)
+	if claims.ResourceLink != nil {
+		if err := validateIdentifier("resource_link.id", claims.ResourceLink.ID); err != nil {
+			return err
+		}
 	}
 	if claims.Context != nil {
 		if claims.Context.ID == "" {
 			return fmt.Errorf("%w: context.id is required when context is present", lticore.ErrInvalidClaims)
 		}
-		if len(claims.Context.ID) > maxIdentifierLength {
-			return fmt.Errorf("%w: context.id exceeds %d characters", lticore.ErrInvalidClaims, maxIdentifierLength)
+		if err := validateIdentifier("context.id", claims.Context.ID); err != nil {
+			return err
 		}
 		if len(claims.Context.Type) > 0 && !slices.ContainsFunc(claims.Context.Type, isStandardContextType) {
 			return fmt.Errorf("%w: context.type does not include a recognized context type", lticore.ErrInvalidClaims)
@@ -602,8 +617,8 @@ func validateCoreClaimSchema(claims *lticore.LTIClaims) error {
 		if claims.ToolPlatform.GUID == "" {
 			return fmt.Errorf("%w: tool_platform.guid is required when tool_platform is present", lticore.ErrInvalidClaims)
 		}
-		if len(claims.ToolPlatform.GUID) > maxIdentifierLength {
-			return fmt.Errorf("%w: tool_platform.guid exceeds %d characters", lticore.ErrInvalidClaims, maxIdentifierLength)
+		if err := validateIdentifier("tool_platform.guid", claims.ToolPlatform.GUID); err != nil {
+			return err
 		}
 	}
 	if len(claims.Roles) > 0 && !slices.ContainsFunc(claims.Roles, isStandardRole) {
@@ -624,6 +639,13 @@ func validateCoreClaimSchema(claims *lticore.LTIClaims) error {
 	if claims.LaunchPresentation != nil && claims.LaunchPresentation.ReturnURL != "" && !isFullyQualifiedHTTPSURL(claims.LaunchPresentation.ReturnURL) {
 		return fmt.Errorf("%w: launch_presentation.return_url must be a fully-qualified https URL", lticore.ErrInvalidClaims)
 	}
+	// target_link_uri is the URL the platform actually navigates the browser
+	// to for this launch, so the Security Framework's TLS requirement applies
+	// directly to it (unlike purely descriptive URL fields elsewhere in the
+	// claims, e.g. tool_platform.url, which carry no such normative requirement).
+	if claims.TargetLinkURI != "" && !isFullyQualifiedHTTPSURL(claims.TargetLinkURI) {
+		return fmt.Errorf("%w: target_link_uri must be a fully-qualified https URL", lticore.ErrInvalidClaims)
+	}
 	return nil
 }
 
@@ -631,6 +653,39 @@ func validateCoreClaimSchema(claims *lticore.LTIClaims) error {
 func isFullyQualifiedHTTPSURL(s string) bool {
 	u, err := url.Parse(s)
 	return err == nil && u.Scheme == "https" && u.Host != ""
+}
+
+// isCleanHTTPSURL reports whether s is an https URL with a host and no query
+// or fragment component, per the Security Framework's Issuer Identifier
+// profile (§5.1.2 / §1.2).
+func isCleanHTTPSURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && u.Scheme == "https" && u.Host != "" && u.RawQuery == "" && u.Fragment == ""
+}
+
+// validateIdentifier enforces the Core 1.3 bound shared by sub, deployment_id,
+// resource_link.id, context.id, and tool_platform.guid: a case-sensitive
+// string that must not exceed 255 ASCII characters. A non-ASCII value fails
+// regardless of its byte length, since "255 ASCII characters" is not the
+// same bound as "255 bytes" for a UTF-8 string.
+func validateIdentifier(name, value string) error {
+	if len(value) > maxIdentifierLength {
+		return fmt.Errorf("%w: %s exceeds %d characters", lticore.ErrInvalidClaims, name, maxIdentifierLength)
+	}
+	if !isASCII(value) {
+		return fmt.Errorf("%w: %s must be an ASCII string", lticore.ErrInvalidClaims, name)
+	}
+	return nil
+}
+
+// isASCII reports whether s consists entirely of ASCII bytes.
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] > 0x7F {
+			return false
+		}
+	}
+	return true
 }
 
 // runMessageValidators finds the appropriate validator for the message type and runs it.

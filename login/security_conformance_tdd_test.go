@@ -43,6 +43,19 @@ func TestLogin_DefaultRejectsHTTPTargetLinkURI(t *testing.T) {
 	}
 }
 
+// The platform authorization endpoint is the next LTI/OIDC message endpoint
+// in the launch flow and is subject to the same mandatory TLS profile.
+func TestLogin_RejectsHTTPAuthorizationEndpoint(t *testing.T) {
+	cfg, reg := newLoginConfig(t)
+	reg.AuthLoginURL = "http://platform.example.com/auth"
+	if err := cfg.Datastore.(*ltitest.SimpleDatastore).AddRegistration(t.Context(), *reg); err != nil {
+		t.Fatalf("update registration fixture: %v", err)
+	}
+	if _, _, err := doLogin(t, cfg, validParams(reg)); err == nil {
+		t.Error("expected an HTTP authorization endpoint to be rejected")
+	}
+}
+
 // A known endpoint receiving an unknown platform is an authorization failure,
 // not malformed syntax. The Security Framework status distinction matters to
 // callers and monitoring even though the response body stays generic.

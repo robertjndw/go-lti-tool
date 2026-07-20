@@ -14,6 +14,10 @@ type OpenIDConfiguration struct {
 	ResponseTypesSupported                     []string `json:"response_types_supported"`
 	IDTokenSigningAlgValuesSupported           []string `json:"id_token_signing_alg_values_supported"`
 	SubjectTypesSupported                      []string `json:"subject_types_supported"`
+	// ClaimsSupported lists the standard OIDC claims_supported metadata.
+	// Not currently used to filter anything, but kept so a decode/re-encode
+	// round trip does not silently discard normative discovery metadata.
+	ClaimsSupported []string `json:"claims_supported,omitempty"`
 	// AuthorizationServer, if set, is used as the aud claim in token-endpoint
 	// client assertions instead of TokenEndpoint.
 	AuthorizationServer      string             `json:"authorization_server,omitempty"`
@@ -75,8 +79,11 @@ type LTIToolConfig struct {
 	CustomParameters map[string]string `json:"custom_parameters,omitempty"`
 	Description      string            `json:"description,omitempty"`
 	// Claims lists the OIDC/LTI claims the tool requires (e.g. "sub", "email").
-	Claims   []string      `json:"claims"`
-	Messages []ToolMessage `json:"messages,omitempty"`
+	Claims []string `json:"claims"`
+	// Messages is a required array property: an otherwise valid tool with no
+	// placement-specific messages (resource-link support may be implicit)
+	// sends [] rather than omitting the property or sending null.
+	Messages []ToolMessage `json:"messages"`
 }
 
 // ToolMessage describes one message type (placement) the tool supports.
@@ -88,6 +95,11 @@ type ToolMessage struct {
 	CustomParameters map[string]string `json:"custom_parameters,omitempty"`
 	Placements       []string          `json:"placements,omitempty"`
 	Roles            []string          `json:"roles,omitempty"`
+	// SupportedTypes and SupportedMediaTypes are DL 2.0-specific properties
+	// for an LtiDeepLinkingRequest message: the content-item types and media
+	// types the placement accepts.
+	SupportedTypes      []string `json:"supported_types,omitempty"`
+	SupportedMediaTypes []string `json:"supported_media_types,omitempty"`
 }
 
 // ClientRegistrationResponse is the response from the platform's registration

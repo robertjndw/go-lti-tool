@@ -72,6 +72,9 @@ func (ks *KeySet) GetPrivateKey(kid string) (*rsa.PrivateKey, bool) {
 func (ks *KeySet) PublicJWKS() ([]byte, error) {
 	doc := jwksDocument{}
 	for kid, priv := range ks.keys {
+		if kid == "" {
+			return nil, fmt.Errorf("jwks: key has an empty kid; the Security Framework requires one so a JWT can select the exact key used during rotation")
+		}
 		if priv == nil {
 			return nil, fmt.Errorf("jwks: no private key configured for kid %q", kid)
 		}

@@ -117,6 +117,42 @@ func TestLaunch_CoreIdentifierMaximumLengthAccepted(t *testing.T) {
 	}
 }
 
+// Core 1.3 defines these identifiers as ASCII strings, not arbitrary UTF-8.
+// A short non-ASCII value must not bypass the schema check merely because it
+// remains below the 255-byte maximum.
+func TestLaunch_CoreIdentifiersRequireASCII(t *testing.T) {
+	tests := map[string]func(jwt.MapClaims){
+		"sub": func(c jwt.MapClaims) {
+			c["sub"] = "user-é"
+		},
+		"deployment_id": func(c jwt.MapClaims) {
+			c[lti.ClaimPrefix+"deployment_id"] = "deployment-é"
+		},
+		"resource_link.id": func(c jwt.MapClaims) {
+			c[lti.ClaimPrefix+"resource_link"] = map[string]any{"id": "resource-é"}
+		},
+		"context.id": func(c jwt.MapClaims) {
+			c[lti.ClaimPrefix+"context"] = map[string]any{"id": "context-é"}
+		},
+		"tool_platform.guid": func(c jwt.MapClaims) {
+			c[lti.ClaimPrefix+"tool_platform"] = map[string]any{"guid": "platform-é"}
+		},
+	}
+
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			nonce, state := "nonce-ascii-"+name, "state-ascii-"+name
+			f.storeNonce(t, nonce)
+			f.setStateCookie(state)
+			_, err := f.validate(t, state, f.validToken(t, nonce, mutate))
+			if !errors.Is(err, lti.ErrInvalidClaims) {
+				t.Errorf("expected ErrInvalidClaims, got %v", err)
+			}
+		})
+	}
+}
+
 // Optional Core claim objects still have required members when present.
 func TestLaunch_OptionalClaimRequiredMembers(t *testing.T) {
 	tests := map[string]func(jwt.MapClaims){
@@ -178,6 +214,15 @@ func TestLaunch_CoreKnownClaimSchemaConstraints(t *testing.T) {
 		"launch_presentation return_url rejects HTTP": func(c jwt.MapClaims) {
 			c[lti.ClaimPrefix+"launch_presentation"] = map[string]any{"return_url": "http://platform.example.com/return"}
 		},
+		"target_link_uri must be fully-qualified HTTPS": func(c jwt.MapClaims) {
+			c[lti.ClaimPrefix+"target_link_uri"] = "http://tool.example.com/launch"
+		},
+		// NOT tested: "tool_platform.url must be HTTPS". Unlike target_link_uri/
+		// return_url above, tool_platform.url is purely descriptive metadata the
+		// tool never navigates to or relies on; a direct fetch of the Core spec
+		// found no field-specific HTTPS requirement for it, only the general
+		// "SHOULD, by best practice" language that applies to every URL in an
+		// LTI message. See CONFORMANCE.md's "Known test/spec disagreements".
 	}
 
 	for name, mutate := range tests {

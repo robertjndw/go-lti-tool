@@ -124,6 +124,26 @@ func TestLogin_UnknownIssuer_Rejected(t *testing.T) {
 	}
 }
 
+// Security Framework §5.1.1.1: a third-party initiated login request may use
+// either GET query parameters or an application/x-www-form-urlencoded POST.
+func TestLogin_FormPOST_Accepted(t *testing.T) {
+	cfg, reg := newLoginConfig(t)
+	form := url.Values{}
+	for key, value := range validParams(reg) {
+		form.Set(key, value)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/oidc/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	redirectURL, _, err := login.HandleLogin(context.Background(), cfg, req)
+	if err != nil {
+		t.Fatalf("HandleLogin rejected a valid form POST: %v", err)
+	}
+	if got := parseRedirect(t, redirectURL).Query().Get("login_hint"); got != "hint-xyz" {
+		t.Errorf("login_hint = %q, want hint-xyz", got)
+	}
+}
+
 // ── OIDC authorization redirect parameters ────────────────────────────────────
 
 // Spec §4.1.2: redirect must go to the platform's AuthLoginURL.
@@ -135,6 +155,29 @@ func TestLogin_RedirectsToAuthLoginURL(t *testing.T) {
 	}
 	if !strings.HasPrefix(redirectURL, reg.AuthLoginURL) {
 		t.Errorf("redirect URL %q must start with AuthLoginURL %q", redirectURL, reg.AuthLoginURL)
+	}
+}
+
+// OIDC Core allows a registered authorization endpoint to contain a query
+// component. LTI authorization parameters must be added without discarding
+// those endpoint parameters.
+func TestLogin_RedirectPreservesAuthorizationEndpointQuery(t *testing.T) {
+	cfg, reg := newLoginConfig(t)
+	reg.AuthLoginURL = "https://platform.example.com/auth?tenant=school-1"
+	if err := cfg.Datastore.(*ltitest.SimpleDatastore).AddRegistration(t.Context(), *reg); err != nil {
+		t.Fatalf("update registration fixture: %v", err)
+	}
+
+	redirectURL, _, err := doLogin(t, cfg, validParams(reg))
+	if err != nil {
+		t.Fatalf("HandleLogin failed: %v", err)
+	}
+	query := parseRedirect(t, redirectURL).Query()
+	if got := query.Get("tenant"); got != "school-1" {
+		t.Errorf("registered endpoint query parameter was lost: tenant = %q", got)
+	}
+	if got := query.Get("scope"); got != "openid" {
+		t.Errorf("scope = %q, want openid", got)
 	}
 }
 

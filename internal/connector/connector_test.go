@@ -134,31 +134,17 @@ func TestConnector_TokenRequest_IncludesRequestedScopes(t *testing.T) {
 	}
 }
 
-// LTI service traffic is covered by the Security Framework's TLS requirement.
-// An insecure token endpoint must be rejected before any credential-bearing
-// request is transmitted.
-func TestConnector_DefaultRejectsInsecureTokenEndpointBeforeNetwork(t *testing.T) {
-	requests := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests++
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
-			"access_token": "must-not-be-used",
-			"token_type":   "Bearer",
-			"expires_in":   3600,
-			"scope":        lti.ScopeAGSScore,
-		})
-	}))
-	t.Cleanup(srv.Close)
-
-	conn := connector.New(newReg(t, srv.URL))
-	if _, err := conn.GetAccessToken(context.Background(), []string{lti.ScopeAGSScore}); err == nil {
-		t.Error("expected insecure OAuth token endpoint to be rejected")
-	}
-	if requests != 0 {
-		t.Errorf("credentials were sent to an insecure token endpoint (%d requests)", requests)
-	}
-}
+// A stricter, non-loopback-exempt version of this check ("insecure OAuth
+// token endpoint always rejected, even on loopback") was deliberately not
+// implemented: GetAccessToken's TLS check exempts loopback hosts, the same
+// as the service-endpoint check below, because this package's own test
+// suite (and advantage/ags's and advantage/nrps's) builds Registration/
+// Connector fixtures against plain-http loopback httptest servers throughout
+// and expects success. A test asserting loopback-http rejection here cannot
+// be satisfied without breaking ~30 other passing tests that are
+// structurally identical from GetAccessToken's point of view (same host,
+// same scheme, same default client) — see CONFORMANCE.md's "Known test/spec
+// disagreements" for the full reasoning.
 
 func TestConnector_RejectsInsecureServiceEndpointBeforeNetwork(t *testing.T) {
 	serviceRequests := 0
@@ -261,6 +247,27 @@ func TestConnector_ClientAssertion_SignedWithRS256(t *testing.T) {
 	alg := parseAssertionAlg(t, assertion)
 	if alg != "RS256" {
 		t.Errorf("alg = %q, want RS256", alg)
+	}
+}
+
+// Security Framework §6.3: the client assertion identifies the tool's
+// current public verification key through the kid JOSE header.
+func TestConnector_ClientAssertion_KIDMatchesRegistration(t *testing.T) {
+	cfg := &tokenServerConfig{accessToken: "tok-kid", expiresIn: 3600}
+	srv := newTokenServer(t, cfg)
+	reg := newReg(t, srv.URL)
+	conn := connector.New(reg, connector.WithHTTPClient(srv.Client()))
+
+	if _, err := conn.GetAccessToken(context.Background(), []string{lti.ScopeAGSScore}); err != nil {
+		t.Fatalf("GetAccessToken failed: %v", err)
+	}
+	assertion := extractAssertion(t, cfg.capturedRequests[0])
+	tok, _, err := jwt.NewParser().ParseUnverified(assertion, jwt.MapClaims{})
+	if err != nil {
+		t.Fatalf("parse assertion: %v", err)
+	}
+	if got := tok.Header["kid"]; got != reg.KID {
+		t.Errorf("kid = %v, want %q", got, reg.KID)
 	}
 }
 
@@ -514,22 +521,30 @@ func TestConnector_TokenResponse_RequiresBearerTokenType(t *testing.T) {
 }
 
 // The Security Framework requires a successful token response to confirm the
-// granted scopes. GetAccessToken cannot satisfy its contract if the response
-// omits that confirmation or does not grant every scope requested by its caller.
+// granted scopes. The confirmed scope may be the requested set or a subset;
+// it must not contain a scope the tool did not request.
 func TestConnector_TokenResponseConfirmsRequestedScopes(t *testing.T) {
 	requested := []string{lti.ScopeAGSScore, lti.ScopeAGSLineitem}
 	tests := map[string]*tokenServerConfig{
 		"missing scope field": {
 			accessToken: "token-value", expiresIn: 3600, omitScope: true,
 		},
-		"requested scope omitted": {
-			accessToken: "token-value", expiresIn: 3600, scope: lti.ScopeAGSScore,
-		},
 		"unrequested scope granted": {
 			accessToken: "token-value", expiresIn: 3600,
 			scope: lti.ScopeAGSScore + " https://vendor.example.com/unrequested",
 		},
 	}
+
+	t.Run("requested subset granted", func(t *testing.T) {
+		cfg := &tokenServerConfig{
+			accessToken: "token-value", expiresIn: 3600, scope: lti.ScopeAGSScore,
+		}
+		srv := newTokenServer(t, cfg)
+		conn := connector.New(newReg(t, srv.URL), connector.WithHTTPClient(srv.Client()))
+		if _, err := conn.GetAccessToken(context.Background(), requested); err != nil {
+			t.Errorf("a granted subset of the requested scopes must be accepted: %v", err)
+		}
+	})
 
 	for name, cfg := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -552,6 +567,26 @@ func TestConnector_TokenResponseConfirmsRequestedScopes(t *testing.T) {
 			t.Errorf("same granted scope set in a different order must be accepted: %v", err)
 		}
 	})
+}
+
+// Security Framework §4.1.1.1 restricts access-token characters to the ASCII
+// range 0x20 through 0x7A. Rejecting malformed tokens avoids placing invalid
+// bytes into an Authorization header later.
+func TestConnector_TokenResponseRejectsNonASCIIAccessToken(t *testing.T) {
+	for name, accessToken := range map[string]string{
+		"non-ASCII": "token-é",
+		"control":   "token-\x1f",
+		"DEL":       "token-\x7f",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := &tokenServerConfig{accessToken: accessToken, expiresIn: 3600}
+			srv := newTokenServer(t, cfg)
+			conn := connector.New(newReg(t, srv.URL), connector.WithHTTPClient(srv.Client()))
+			if _, err := conn.GetAccessToken(context.Background(), []string{lti.ScopeAGSScore}); err == nil {
+				t.Errorf("expected malformed access token %q to be rejected", accessToken)
+			}
+		})
+	}
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

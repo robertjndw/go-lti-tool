@@ -207,7 +207,12 @@ type DeepLinkingSettings struct {
 	AutoCreate                        bool     `json:"auto_create,omitempty"`
 	Title                             string   `json:"title,omitempty"`
 	Text                              string   `json:"text,omitempty"`
-	Data                              string   `json:"data,omitempty"`
+	// Data is an opaque value the tool must echo back unmodified in its
+	// response when present (DL 2.0 §5.1). A *string distinguishes an absent
+	// data property (nil, nothing to echo) from an explicit empty string
+	// (non-nil, must still be echoed) — a plain string cannot represent that
+	// distinction once decoded.
+	Data *string `json:"data,omitempty"`
 	// AcceptLineItem indicates whether the platform supports a lineItem on an
 	// ltiResourceLink content item. Nil means no assumption can be made
 	// (added to the DL 2.0 schema in 2023); false means line items will be

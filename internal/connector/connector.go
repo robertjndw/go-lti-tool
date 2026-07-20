@@ -105,16 +105,35 @@ func requireSecureServiceURL(rawURL string) error {
 	return fmt.Errorf("connector: insecure service URL %q: the 1EdTech Security Framework §3 requires TLS (loopback hosts are exempt for local testing)", rawURL)
 }
 
-// scopeSetEqual reports whether granted (a space-separated OAuth2 scope
-// list, RFC 6749 §3.3) contains exactly the requested scopes, regardless of
-// order. An empty/omitted granted scope never matches a non-empty request.
-func scopeSetEqual(granted string, requested []string) bool {
+// scopeGrantValid reports whether granted (a space-separated OAuth2 scope
+// list, RFC 6749 §3.3) is a non-empty subset of requested. RFC 6749 §3.3
+// permits the authorization server to grant a narrower scope than requested,
+// so a subset is valid; an empty/omitted grant is not confirmation of
+// anything and is rejected, and a scope the tool never requested is rejected
+// as a sign of platform misconfiguration.
+func scopeGrantValid(granted string, requested []string) bool {
 	grantedScopes := strings.Fields(granted)
-	if len(grantedScopes) != len(requested) {
+	if len(grantedScopes) == 0 {
 		return false
 	}
-	for _, s := range requested {
-		if !slices.Contains(grantedScopes, s) {
+	for _, s := range grantedScopes {
+		if !slices.Contains(requested, s) {
+			return false
+		}
+	}
+	return true
+}
+
+// isValidAccessToken reports whether s is a syntactically valid OAuth2
+// access token per RFC 6749 Appendix A.12 (access-token = 1*VSCHAR, i.e. one
+// or more visible ASCII characters, %x20-7E). Rejecting anything else avoids
+// ever placing invalid or non-ASCII bytes into an Authorization header.
+func isValidAccessToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 || s[i] > 0x7E {
 			return false
 		}
 	}
@@ -200,14 +219,14 @@ func (c *Connector) GetAccessToken(ctx context.Context, scopes []string) (string
 	if err := json.Unmarshal(body, &tr); err != nil {
 		return "", fmt.Errorf("connector: failed to parse token response: %w", err)
 	}
-	if tr.AccessToken == "" {
-		return "", fmt.Errorf("connector: token response missing access_token")
+	if !isValidAccessToken(tr.AccessToken) {
+		return "", fmt.Errorf("connector: token response access_token is missing or contains invalid characters")
 	}
 	if !strings.EqualFold(tr.TokenType, "bearer") {
 		return "", fmt.Errorf("connector: token response has unsupported token_type %q, want Bearer", tr.TokenType)
 	}
-	if !scopeSetEqual(tr.Scope, scopes) {
-		return "", fmt.Errorf("connector: token endpoint granted scope %q does not match requested scopes %v", tr.Scope, scopes)
+	if !scopeGrantValid(tr.Scope, scopes) {
+		return "", fmt.Errorf("connector: token endpoint granted scope %q is not a non-empty subset of the requested scopes %v", tr.Scope, scopes)
 	}
 
 	expiresIn := tr.ExpiresIn

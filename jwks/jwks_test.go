@@ -144,3 +144,12 @@ func TestPublicJWKS_RejectsRSAKeysBelow2048Bits(t *testing.T) {
 		t.Error("expected a sub-2048-bit RSA key to be rejected")
 	}
 }
+
+// Security Framework §6.3 requires each advertised verification key to have
+// a kid so a JWT can select the exact key used during rotation.
+func TestPublicJWKS_RejectsEmptyKID(t *testing.T) {
+	ks := jwks.NewKeySet(map[string]*rsa.PrivateKey{"": ltitest.NewKey(t)})
+	if _, err := ks.PublicJWKS(); err == nil {
+		t.Error("expected a JWKS key without kid to be rejected")
+	}
+}

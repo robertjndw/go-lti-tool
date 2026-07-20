@@ -92,7 +92,9 @@ func TestLaunch_KeyRotation_RefreshesCache(t *testing.T) {
 	}
 }
 
-// A JWT without a kid header must be verified by trying all platform keys.
+// The Security Framework permits an issuer not to use kid, although every key
+// in the advertised key set still has one. In that case the receiver must be
+// able to find the signing key without weakening signature verification.
 func TestLaunch_NoKidHeader_TriesAllKeys(t *testing.T) {
 	f := newFixture(t)
 	otherKey := ltitest.NewKey(t)

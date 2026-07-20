@@ -61,6 +61,12 @@ var (
 	// is true and the platform's OpenID Provider Configuration omits an
 	// OIDC-discovery-REQUIRED field.
 	ErrIncompleteDiscovery = errors.New("lti/dynreg: platform discovery metadata is missing a required field (StrictDiscovery)")
+
+	// ErrInvalidToolMetadata is returned when the tool's own DynRegConfig
+	// carries malformed metadata (e.g. ToolDomain containing a scheme, or a
+	// non-https tool endpoint) that would otherwise be sent to the platform
+	// and either be rejected there or silently misregister the tool.
+	ErrInvalidToolMetadata = errors.New("lti/dynreg: invalid tool metadata")
 )
 
 // DynRegConfig holds all dependencies and tool-identity information needed for the
@@ -247,6 +253,9 @@ func Register(ctx context.Context, cfg DynRegConfig, openidConfigURL, registrati
 	if err := validateOpenIDConfigURL(openidConfigURL, cfg.AllowInsecureOpenIDConfigURL); err != nil {
 		return nil, err
 	}
+	if err := validateToolMetadata(&cfg); err != nil {
+		return nil, err
+	}
 
 	client := cfg.httpClient()
 
@@ -366,16 +375,21 @@ func (cfg *DynRegConfig) buildRequest(openidConfig *OpenIDConfiguration) *Client
 
 // filteredMessages drops requested Messages whose Type is not in the
 // platform's messages_supported, when the platform advertised any (silent
-// narrowing, mirroring the scope intersection in scopes).
+// narrowing, mirroring the scope intersection in scopes). The LTI tool
+// configuration schema defines messages as a required array property, so
+// this always returns a non-nil slice — resource-link support may be
+// implicit with no placement-specific messages, in which case it returns []
+// rather than nil, so the field is never encoded as JSON null.
 func (cfg *DynRegConfig) filteredMessages(platformConfig *LTIPlatformConfig) []ToolMessage {
+	out := []ToolMessage{}
 	if platformConfig == nil || len(platformConfig.MessagesSupported) == 0 {
-		return cfg.Messages
+		out = append(out, cfg.Messages...)
+		return out
 	}
 	supported := make(map[string]bool, len(platformConfig.MessagesSupported))
 	for _, m := range platformConfig.MessagesSupported {
 		supported[m.Type] = true
 	}
-	var out []ToolMessage
 	for _, m := range cfg.Messages {
 		if supported[m.Type] {
 			out = append(out, m)
@@ -457,6 +471,12 @@ func validateOpenIDConfigURL(rawURL string, allowInsecure bool) error {
 	if u.Host == "" {
 		return fmt.Errorf("%w: missing host", ErrInvalidOpenIDConfigURL)
 	}
+	// DR 1.0 §3.4: "The URL must not contain any fragment parameter." A
+	// fragment is never sent to the server, so it cannot identify which
+	// discovery document is actually fetched.
+	if u.Fragment != "" {
+		return fmt.Errorf("%w: URL must not contain a fragment", ErrInvalidOpenIDConfigURL)
+	}
 	if allowInsecure {
 		if u.Scheme != "http" && u.Scheme != "https" {
 			return fmt.Errorf("%w: URL must use http or https scheme", ErrInvalidOpenIDConfigURL)
@@ -485,16 +505,22 @@ func validatePlatformURLs(cfg *OpenIDConfiguration, allowInsecure bool) error {
 		if rawURL == "" {
 			continue
 		}
+		// Every endpoint must be a fully-qualified URL: a scheme alone (e.g.
+		// "https:register", parsed by net/url as scheme "https" with an
+		// opaque part rather than an authority) satisfies a bare scheme check
+		// but has no host to actually connect to.
 		u, err := url.Parse(rawURL)
-		if err != nil || u.Scheme != "https" {
-			return fmt.Errorf("%w: platform %s must use https", ErrInvalidOpenIDConfigURL, name)
+		if err != nil || u.Scheme != "https" || u.Host == "" {
+			return fmt.Errorf("%w: platform %s must be a fully-qualified https URL", ErrInvalidOpenIDConfigURL, name)
 		}
 	}
 	return nil
 }
 
 // validateDomain checks that the host of configURL exactly matches the host of
-// the issuer URL. Subdomain and TLD differences are both rejected.
+// the issuer URL, and that the issuer meets the OIDC Discovery §3 issuer
+// profile: an https URL with no query or fragment component. Subdomain and
+// TLD differences are both rejected.
 func validateDomain(configURL, issuer string) error {
 	cfgU, err := url.Parse(configURL)
 	if err != nil {
@@ -507,7 +533,50 @@ func validateDomain(configURL, issuer string) error {
 	if cfgU.Hostname() != issuerU.Hostname() {
 		return fmt.Errorf("%w: config host %q != issuer host %q", ErrDomainMismatch, cfgU.Hostname(), issuerU.Hostname())
 	}
+	if issuerU.RawQuery != "" || issuerU.Fragment != "" {
+		return fmt.Errorf("%w: issuer %q must have no query or fragment component (OIDC Discovery §3)", ErrInvalidOpenIDConfigURL, issuer)
+	}
 	return nil
+}
+
+// validateToolMetadata checks the tool's own DynRegConfig for malformed
+// values before anything is sent to the platform: ToolDomain must be a bare
+// hostname (not a URL), and every tool-controlled endpoint URL must be a
+// fully-qualified https URL (1EdTech Security Framework §3).
+func validateToolMetadata(cfg *DynRegConfig) error {
+	if strings.Contains(cfg.ToolDomain, "://") {
+		return fmt.Errorf("%w: ToolDomain must be a bare hostname, not a URL: %q", ErrInvalidToolMetadata, cfg.ToolDomain)
+	}
+	namedURLs := map[string]string{
+		"JWKSURL":          cfg.JWKSURL,
+		"InitiateLoginURL": cfg.InitiateLoginURL,
+		"TargetLinkURL":    cfg.TargetLinkURL,
+	}
+	for name, raw := range namedURLs {
+		if raw == "" {
+			continue
+		}
+		if !isFullyQualifiedHTTPSURL(raw) {
+			return fmt.Errorf("%w: %s must be a fully-qualified https URL: %q", ErrInvalidToolMetadata, name, raw)
+		}
+	}
+	for _, raw := range cfg.RedirectURIs {
+		if !isFullyQualifiedHTTPSURL(raw) {
+			return fmt.Errorf("%w: RedirectURIs must be fully-qualified https URLs: %q", ErrInvalidToolMetadata, raw)
+		}
+	}
+	for _, m := range cfg.Messages {
+		if m.TargetLinkURI != "" && !isFullyQualifiedHTTPSURL(m.TargetLinkURI) {
+			return fmt.Errorf("%w: message %q target_link_uri must be a fully-qualified https URL: %q", ErrInvalidToolMetadata, m.Type, m.TargetLinkURI)
+		}
+	}
+	return nil
+}
+
+// isFullyQualifiedHTTPSURL reports whether raw is an absolute https URL with a host.
+func isFullyQualifiedHTTPSURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && u.Scheme == "https" && u.Host != ""
 }
 
 // fetchOpenIDConfig fetches and decodes the platform's OpenID Provider

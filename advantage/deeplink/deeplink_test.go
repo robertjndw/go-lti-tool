@@ -1,6 +1,7 @@
 package deeplink_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -193,15 +194,33 @@ func TestResponseJWT_ContentItemsIncluded(t *testing.T) {
 	}
 }
 
-// An empty resource list must still produce a valid JWT (zero content items).
+// DL 2.0 permits a response with no selections by omitting content_items or by
+// sending an empty JSON array. JSON null is not a content-items array.
 func TestResponseJWT_EmptyResources(t *testing.T) {
-	b, _ := newBuilder(t)
-	tok, err := b.ResponseJWT([]deeplink.Resource{})
-	if err != nil {
-		t.Fatalf("ResponseJWT failed with empty resources: %v", err)
-	}
-	if tok == "" {
-		t.Error("expected non-empty JWT")
+	for name, resources := range map[string][]deeplink.Resource{
+		"nil slice":   nil,
+		"empty slice": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			b, _ := newBuilder(t)
+			tok, err := b.ResponseJWT(resources)
+			if err != nil {
+				t.Fatalf("ResponseJWT failed with no resources: %v", err)
+			}
+			claims, _ := parseResponseJWT(t, tok)
+			const claimKey = "https://purl.imsglobal.org/spec/lti-dl/claim/content_items"
+			value, present := claims[claimKey]
+			if !present {
+				return
+			}
+			items, ok := value.([]any)
+			if !ok {
+				t.Fatalf("content_items = %#v (%T), want omitted or an empty array", value, value)
+			}
+			if len(items) != 0 {
+				t.Errorf("content_items has %d entries, want zero", len(items))
+			}
+		})
 	}
 }
 
@@ -254,7 +273,7 @@ func TestResponseJWT_EchoesDataField(t *testing.T) {
 		DeepLinkReturnURL:                 "https://platform.example.com/dl-return",
 		AcceptTypes:                       []string{"ltiResourceLink"},
 		AcceptPresentationDocumentTargets: []string{"iframe"},
-		Data:                              "platform-state-opaque",
+		Data:                              deeplink.String("platform-state-opaque"),
 	}
 	b := deeplink.New(reg, "deploy-1", settings)
 	tok, err := b.ResponseJWT(nil)
@@ -265,6 +284,32 @@ func TestResponseJWT_EchoesDataField(t *testing.T) {
 	const dataKey = "https://purl.imsglobal.org/spec/lti-dl/claim/data"
 	if claims[dataKey] != "platform-state-opaque" {
 		t.Errorf("data = %v, want platform-state-opaque", claims[dataKey])
+	}
+}
+
+// The request's data property is opaque and must be echoed whenever present;
+// an empty string remains a present value and is not equivalent to omission.
+func TestResponseJWT_EchoesPresentEmptyDataField(t *testing.T) {
+	_, reg := newBuilder(t)
+	var settings lti.DeepLinkingSettings
+	if err := json.Unmarshal([]byte(`{
+		"deep_link_return_url":"https://platform.example.com/dl-return",
+		"accept_types":["ltiResourceLink"],
+		"accept_presentation_document_targets":["iframe"],
+		"data":""
+	}`), &settings); err != nil {
+		t.Fatalf("unmarshal settings: %v", err)
+	}
+	b := deeplink.New(reg, "deploy-1", &settings)
+	tok, err := b.ResponseJWT(nil)
+	if err != nil {
+		t.Fatalf("ResponseJWT failed: %v", err)
+	}
+	claims, _ := parseResponseJWT(t, tok)
+	const claimKey = "https://purl.imsglobal.org/spec/lti-dl/claim/data"
+	value, present := claims[claimKey]
+	if !present || value != "" {
+		t.Errorf("data claim = %#v (present %v), want present empty string", value, present)
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -169,7 +170,18 @@ func HandleLogin(ctx context.Context, cfg Config, r *http.Request) (redirectURL 
 	if err != nil {
 		return "", nil, fmt.Errorf("lti/login: invalid auth login URL %q: %w", reg.AuthLoginURL, err)
 	}
-	authURL.RawQuery = params.Encode()
+	// The authorization endpoint is the next LTI/OIDC message destination in
+	// the flow and is subject to the same Security Framework §3 TLS mandate
+	// as target_link_uri.
+	if authURL.Scheme != "https" {
+		return "", nil, fmt.Errorf("lti/login: registration AuthLoginURL %q must use https", reg.AuthLoginURL)
+	}
+	// A registered authorization endpoint may already carry its own query
+	// component (e.g. a tenant identifier); merge the OIDC/LTI parameters in
+	// rather than discarding it.
+	query := authURL.Query()
+	maps.Copy(query, params)
+	authURL.RawQuery = query.Encode()
 
 	return authURL.String(), cookieList, nil
 }

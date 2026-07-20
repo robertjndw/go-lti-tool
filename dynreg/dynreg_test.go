@@ -59,18 +59,16 @@ func newPlatform(t *testing.T, registrationStatus int) *httptest.Server {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Errorf("decode registration request: %v", err)
 			}
-			resp := dynreg.ClientRegistrationResponse{
-				ClientID:                "client-abc",
-				ApplicationType:         req.ApplicationType,
-				GrantTypes:              req.GrantTypes,
-				ResponseTypes:           req.ResponseTypes,
-				RedirectURIs:            req.RedirectURIs,
-				InitiateLoginURI:        req.InitiateLoginURI,
-				ClientName:              req.ClientName,
-				JWKSURL:                 req.JWKSURL,
-				TokenEndpointAuthMethod: req.TokenEndpointAuthMethod,
-				Scope:                   req.Scope,
-			}
+			resp := dynreg.ClientRegistrationResponse{ClientID: "client-abc"}
+			resp.ApplicationType = req.ApplicationType
+			resp.GrantTypes = req.GrantTypes
+			resp.ResponseTypes = req.ResponseTypes
+			resp.RedirectURIs = req.RedirectURIs
+			resp.InitiateLoginURI = req.InitiateLoginURI
+			resp.ClientName = req.ClientName
+			resp.JWKSURL = req.JWKSURL
+			resp.TokenEndpointAuthMethod = req.TokenEndpointAuthMethod
+			resp.Scope = req.Scope
 			w.Header().Set("Content-Type", "application/json")
 			if err := json.NewEncoder(w).Encode(resp); err != nil {
 				t.Errorf("encode registration response: %v", err)
@@ -376,14 +374,12 @@ func TestRegister_WithDeploymentID(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(cfg)
 		case "/register":
-			resp := dynreg.ClientRegistrationResponse{
-				ClientID: "dep-client",
-				LTIToolConfiguration: &dynreg.LTIToolConfig{
-					Domain:        "tool.example.com",
-					TargetLinkURI: "https://tool.example.com/launch",
-					Claims:        []string{"sub"},
-					DeploymentID:  "deploy-123",
-				},
+			resp := dynreg.ClientRegistrationResponse{ClientID: "dep-client"}
+			resp.LTIToolConfiguration = &dynreg.LTIToolConfig{
+				Domain:        "tool.example.com",
+				TargetLinkURI: "https://tool.example.com/launch",
+				Claims:        []string{"sub"},
+				DeploymentID:  "deploy-123",
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)

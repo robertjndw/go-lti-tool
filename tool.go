@@ -23,6 +23,8 @@ type Tool struct {
 	cookieHandler        lticore.CookieHandler
 	keySet               jwks.KeySetProvider
 	allowedRedirectHosts []string
+	launchConfigFns      []func(*launch.Config)
+	loginConfigFns       []func(*login.Config)
 }
 
 // NewTool creates a Tool pre-configured with in-memory stores and the default cookie handler.
@@ -57,12 +59,16 @@ func (t *Tool) GetLaunch(ctx context.Context, launchID string) (*Launch, error) 
 // It validates the incoming request, sets the state cookie, and redirects to
 // the platform's OIDC authorization endpoint.
 func (t *Tool) HandleLogin() http.Handler {
-	return login.Handler(login.Config{
+	cfg := login.Config{
 		Datastore:            t.dataStore,
 		NonceStore:           t.nonceStore,
 		CookieHandler:        t.cookieHandler,
 		AllowedRedirectHosts: t.allowedRedirectHosts,
-	})
+	}
+	for _, fn := range t.loginConfigFns {
+		fn(&cfg)
+	}
+	return login.Handler(cfg)
 }
 
 // HandleJWKS returns an http.Handler that serves the tool's public JWKS.
@@ -90,12 +96,16 @@ func (t *Tool) HandleJWKS() http.Handler {
 // POST, caches the resulting LaunchData, and makes it available via FromContext
 // before calling next.
 func (t *Tool) HandleLaunch(next http.Handler) http.Handler {
-	return launch.Handler(launch.Config{
+	cfg := launch.Config{
 		Datastore:     t.dataStore,
 		NonceStore:    t.nonceStore,
 		LaunchStore:   t.launchDataStore,
 		CookieHandler: t.cookieHandler,
-	}, next)
+	}
+	for _, fn := range t.launchConfigFns {
+		fn(&cfg)
+	}
+	return launch.Handler(cfg, next)
 }
 
 // ToolProfile describes the tool to a platform.

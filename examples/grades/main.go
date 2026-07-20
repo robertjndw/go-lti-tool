@@ -100,8 +100,8 @@ func handleLaunch(w http.ResponseWriter, r *http.Request) {
 	// Submit a score for the launching user (85/100 for this example).
 	score := ags.Score{
 		UserID:           ld.Claims.Subject,
-		ScoreGiven:       ags.Float(85),
-		ScoreMaximum:     ags.Float(100),
+		ScoreGiven:       ags.Float64(85),
+		ScoreMaximum:     ags.Float64(100),
 		Comment:          "Great work!",
 		ActivityProgress: ags.ActivityProgressCompleted,
 		GradingProgress:  ags.GradingProgressFullyGraded,

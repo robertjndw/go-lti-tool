@@ -20,6 +20,9 @@ type Member struct {
 	// FamilyName is the user's family (last) name.
 	FamilyName string `json:"family_name,omitempty"`
 
+	// MiddleName is the user's middle name.
+	MiddleName string `json:"middle_name,omitempty"`
+
 	// Email is the user's email address.
 	Email string `json:"email,omitempty"`
 

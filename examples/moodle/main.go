@@ -191,8 +191,8 @@ func (s *server) handleResourceLaunch(w http.ResponseWriter, r *http.Request, ld
 				} else {
 					score := ags.Score{
 						UserID:           ld.Claims.Subject,
-						ScoreGiven:       ags.Float(75),
-						ScoreMaximum:     ags.Float(maxScore),
+						ScoreGiven:       ags.Float64(75),
+						ScoreMaximum:     ags.Float64(maxScore),
 						ActivityProgress: ags.ActivityProgressCompleted,
 						GradingProgress:  ags.GradingProgressFullyGraded,
 						Timestamp:        time.Now().UTC().Format(time.RFC3339),

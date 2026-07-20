@@ -153,6 +153,14 @@ func ValidateLaunch(ctx context.Context, cfg Config, r *http.Request) (*lticore.
 	state := r.FormValue("state")
 	idToken := r.FormValue("id_token")
 
+	// OIDC Core §3.1.2.6: the platform may POST an error response instead of
+	// an id_token (e.g. the user declined consent, or login_required could
+	// not be satisfied silently). Surface it as a typed error rather than
+	// falling through to the generic "missing id_token" message.
+	if errCode := r.FormValue("error"); errCode != "" {
+		return nil, &lticore.PlatformError{Code: errCode, Description: r.FormValue("error_description")}
+	}
+
 	if idToken == "" {
 		return nil, fmt.Errorf("lti/launch: missing id_token in request")
 	}

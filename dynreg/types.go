@@ -35,24 +35,32 @@ type PlatformMessage struct {
 	Placements []string `json:"placements,omitempty"`
 }
 
-// ClientRegistrationRequest is the payload POSTed to the platform's
-// registration endpoint.
-type ClientRegistrationRequest struct {
-	ApplicationType         string         `json:"application_type"`
-	GrantTypes              []string       `json:"grant_types"`
-	ResponseTypes           []string       `json:"response_types"`
-	RedirectURIs            []string       `json:"redirect_uris"`
-	InitiateLoginURI        string         `json:"initiate_login_uri"`
-	ClientName              string         `json:"client_name"`
-	JWKSURL                 string         `json:"jwks_uri"`
-	TokenEndpointAuthMethod string         `json:"token_endpoint_auth_method"`
-	Scope                   string         `json:"scope"`
+// ClientMetadata holds the client registration properties shared between the
+// registration request, the registration response, and the RFC 7592 update
+// payload (RFC 7591 §2 plus the LTI-specific tool configuration extension).
+// Extracting it once keeps the three call shapes from drifting apart.
+type ClientMetadata struct {
+	ApplicationType         string         `json:"application_type,omitempty"`
+	GrantTypes              []string       `json:"grant_types,omitempty"`
+	ResponseTypes           []string       `json:"response_types,omitempty"`
+	RedirectURIs            []string       `json:"redirect_uris,omitempty"`
+	InitiateLoginURI        string         `json:"initiate_login_uri,omitempty"`
+	ClientName              string         `json:"client_name,omitempty"`
+	JWKSURL                 string         `json:"jwks_uri,omitempty"`
+	TokenEndpointAuthMethod string         `json:"token_endpoint_auth_method,omitempty"`
+	Scope                   string         `json:"scope,omitempty"`
 	LogoURI                 string         `json:"logo_uri,omitempty"`
 	Contacts                []string       `json:"contacts,omitempty"`
 	ClientURI               string         `json:"client_uri,omitempty"`
 	TOSURI                  string         `json:"tos_uri,omitempty"`
 	PolicyURI               string         `json:"policy_uri,omitempty"`
-	LTIToolConfiguration    *LTIToolConfig `json:"https://purl.imsglobal.org/spec/lti-tool-configuration"`
+	LTIToolConfiguration    *LTIToolConfig `json:"https://purl.imsglobal.org/spec/lti-tool-configuration,omitempty"`
+}
+
+// ClientRegistrationRequest is the payload POSTed to the platform's
+// registration endpoint.
+type ClientRegistrationRequest struct {
+	ClientMetadata
 }
 
 // LTIToolConfig is the LTI-specific tool configuration embedded in both the
@@ -86,19 +94,21 @@ type ToolMessage struct {
 // endpoint. It mirrors the request, with platform-assigned values (client_id,
 // possibly deployment_id) added.
 type ClientRegistrationResponse struct {
-	ClientID                string   `json:"client_id"`
-	ApplicationType         string   `json:"application_type"`
-	GrantTypes              []string `json:"grant_types"`
-	ResponseTypes           []string `json:"response_types"`
-	RedirectURIs            []string `json:"redirect_uris"`
-	InitiateLoginURI        string   `json:"initiate_login_uri"`
-	ClientName              string   `json:"client_name"`
-	JWKSURL                 string   `json:"jwks_uri"`
-	TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
-	Scope                   string   `json:"scope"`
+	ClientID string `json:"client_id"`
+	ClientMetadata
 	// RegistrationClientURI and RegistrationAccessToken are present when the
-	// platform supports subsequent GET/PUT of the registration record.
-	RegistrationClientURI   string         `json:"registration_client_uri,omitempty"`
-	RegistrationAccessToken string         `json:"registration_access_token,omitempty"`
-	LTIToolConfiguration    *LTIToolConfig `json:"https://purl.imsglobal.org/spec/lti-tool-configuration,omitempty"`
+	// platform supports subsequent GET/PUT of the registration record
+	// (RFC 7592). Use them with ReadRegistration/UpdateRegistration.
+	RegistrationClientURI   string `json:"registration_client_uri,omitempty"`
+	RegistrationAccessToken string `json:"registration_access_token,omitempty"`
+}
+
+// ClientRegistrationUpdate is the RFC 7592 §2.2 update payload: the client_id
+// plus the full registered metadata. Build it from a ReadRegistration result,
+// mutate, then send with UpdateRegistration — partial updates are not
+// defined by the RFC. registration_access_token/registration_client_uri are
+// deliberately absent: RFC 7592 §2.2 excludes them from the PUT body.
+type ClientRegistrationUpdate struct {
+	ClientID string `json:"client_id"`
+	ClientMetadata
 }

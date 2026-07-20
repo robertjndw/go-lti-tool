@@ -96,6 +96,17 @@ func TestPublicJWKS_MultipleKeys(t *testing.T) {
 	}
 }
 
+// A Registration with a nil ToolPrivateKey must fail JWKS generation with a
+// clean error, not panic (a nil private key is a misconfiguration, but the
+// JWKS handler must be able to recover from it and return a 500, not crash).
+func TestPublicJWKS_NilPrivateKey_ReturnsError(t *testing.T) {
+	ks := jwks.NewKeySet(map[string]*rsa.PrivateKey{"key-1": nil})
+	_, err := ks.PublicJWKS()
+	if err == nil {
+		t.Fatal("expected an error for a nil private key, got nil")
+	}
+}
+
 // JWKS output must not include any private key material.
 func TestPublicJWKS_NoPrivateKeyMaterial(t *testing.T) {
 	reg, _ := newReg(t, "key-1")

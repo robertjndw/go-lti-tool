@@ -128,6 +128,49 @@ func TestLaunch_MissingIDToken_Rejected(t *testing.T) {
 	}
 }
 
+// Task 1.8, OIDC Core §3.1.2.6: an OIDC/OAuth error response POSTed instead
+// of an id_token must surface as a typed *lti.PlatformError, extractable via
+// errors.As, rather than falling through to the generic missing-id_token error.
+func TestLaunch_PlatformErrorResponse_SurfacedAsTypedError(t *testing.T) {
+	f := newFixture(t)
+	state := "state-platformerror"
+	f.setStateCookie(state)
+
+	req := httptest.NewRequest(http.MethodPost, "/lti/launch", nil)
+	req.Form = map[string][]string{
+		"state":             {state},
+		"error":             {"login_required"},
+		"error_description": {"cookies"},
+	}
+
+	_, err := launch.ValidateLaunch(context.Background(), f.cfg(), req)
+	var platformErr *lti.PlatformError
+	if !errors.As(err, &platformErr) {
+		t.Fatalf("expected *lti.PlatformError, got %v", err)
+	}
+	if platformErr.Code != "login_required" {
+		t.Errorf("Code = %q, want login_required", platformErr.Code)
+	}
+	if platformErr.Description != "cookies" {
+		t.Errorf("Description = %q, want cookies", platformErr.Description)
+	}
+}
+
+// Normal launches (no "error" parameter) must be unaffected.
+func TestLaunch_NoErrorParameter_NormalLaunchUnaffected(t *testing.T) {
+	f := newFixture(t)
+	nonce := "nonce-no-platform-error"
+	f.storeNonce(t, nonce)
+	token := f.validToken(t, nonce, nil)
+	state := "state-normal"
+	f.setStateCookie(state)
+
+	_, err := f.validate(t, state, token)
+	if err != nil {
+		t.Errorf("expected success, got %v", err)
+	}
+}
+
 // ── LTI spec §5.1.1 — JWT Signature Validation ───────────────────────────────
 
 // Spec: The Tool MUST validate the JWT signature against the platform's JWKS.

@@ -1,8 +1,8 @@
 package ags
 
-// Float returns a pointer to v, for filling optional score fields such as
-// Score.ScoreGiven inline: ags.Score{ScoreGiven: ags.Float(85), ...}.
-func Float(v float64) *float64 { return &v }
+// Float64 returns a pointer to v, for filling optional score fields such as
+// Score.ScoreGiven inline: ags.Score{ScoreGiven: ags.Float64(85), ...}.
+func Float64(v float64) *float64 { return &v }
 
 // Score is the payload sent to the platform to record a learner's grade.
 // It maps to the LTI AGS Score schema.
@@ -11,7 +11,7 @@ type Score struct {
 	UserID string `json:"userId"`
 
 	// ScoreGiven is the achieved score. Nil means no score is being reported
-	// (which is different from a score of 0). Use ags.Float to set it inline.
+	// (which is different from a score of 0). Use ags.Float64 to set it inline.
 	// When set, ScoreMaximum must also be set (AGS spec).
 	ScoreGiven *float64 `json:"scoreGiven,omitempty"`
 

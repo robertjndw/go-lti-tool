@@ -50,6 +50,29 @@ func parseResponseJWT(t *testing.T, tokenStr string) (jwt.MapClaims, *jwt.Token)
 
 // ── ResponseJWT structure ─────────────────────────────────────────────────────
 
+// Task 1.3: an empty deployment ID must be rejected before signing, not
+// silently produce a response JWT with an empty deployment_id claim.
+func TestResponseJWT_EmptyDeploymentID_Rejected(t *testing.T) {
+	_, reg := newBuilder(t)
+	settings := &lti.DeepLinkingSettings{
+		DeepLinkReturnURL:                 "https://platform.example.com/dl-return",
+		AcceptTypes:                       []string{"ltiResourceLink"},
+		AcceptPresentationDocumentTargets: []string{"iframe"},
+	}
+	b := deeplink.New(reg, "", settings)
+	if _, err := b.ResponseJWT(nil); err == nil {
+		t.Fatal("expected error for empty deployment ID, got nil")
+	}
+}
+
+// The happy path (non-empty deployment ID) must be unaffected by the guard.
+func TestResponseJWT_NonEmptyDeploymentID_Accepted(t *testing.T) {
+	b, _ := newBuilder(t)
+	if _, err := b.ResponseJWT(nil); err != nil {
+		t.Fatalf("ResponseJWT failed with a valid deployment ID: %v", err)
+	}
+}
+
 // Spec: iss must be the tool's client_id.
 func TestResponseJWT_IssIsClientID(t *testing.T) {
 	b, reg := newBuilder(t)

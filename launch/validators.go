@@ -97,6 +97,47 @@ func (DeepLinkMessageValidator) Validate(claims *lticore.LTIClaims) error {
 	return nil
 }
 
+// DataPrivacyMessageValidator validates LtiDataPrivacyLaunchRequest messages
+// (Data Privacy Launch, a 1EdTech Draft spec as of this writing). Platforms
+// such as Canvas send this message type to let an administrative user manage
+// and execute data-privacy requests (e.g. right-to-be-forgotten) for a
+// specific user, identified via the for_user claim.
+//
+// NOT included in DefaultValidators(): this is a Draft spec, and its
+// requirements can change between revisions without notice. A default
+// validator silently changing launch acceptance as the spec evolves would be
+// surprising. Opt in explicitly:
+//
+//	cfg.Validators = append(launch.DefaultValidators(), launch.DataPrivacyMessageValidator{})
+//
+// Confirmation status: the 1EdTech Data Privacy Launch specification document
+// is member-gated, so the exact claim requirements below (for_user required)
+// could not be independently verified against the live text at the time this
+// validator was written. Re-confirm against the current revision before
+// relying on this in a certification context.
+type DataPrivacyMessageValidator struct{}
+
+func (DataPrivacyMessageValidator) CanValidate(claims *lticore.LTIClaims) bool {
+	return claims.MessageType == lticore.MessageTypeDataPrivacyLaunch
+}
+
+// Validate checks LTI-specific claims for an LtiDataPrivacyLaunchRequest.
+func (DataPrivacyMessageValidator) Validate(claims *lticore.LTIClaims) error {
+	if err := validateVersion(lticore.MessageTypeDataPrivacyLaunch, claims); err != nil {
+		return err
+	}
+	if claims.Roles == nil {
+		return fmt.Errorf("lti: %s missing 'roles' claim", lticore.MessageTypeDataPrivacyLaunch)
+	}
+	if claims.ForUser == nil {
+		return fmt.Errorf("lti: %s missing 'for_user' claim", lticore.MessageTypeDataPrivacyLaunch)
+	}
+	if claims.ForUser.UserID == "" {
+		return fmt.Errorf("lti: %s for_user.user_id is empty", lticore.MessageTypeDataPrivacyLaunch)
+	}
+	return nil
+}
+
 // SubmissionReviewMessageValidator validates LtiSubmissionReviewRequest messages.
 type SubmissionReviewMessageValidator struct{}
 
@@ -109,6 +150,14 @@ func (SubmissionReviewMessageValidator) CanValidate(claims *lticore.LTIClaims) b
 // submission is being reviewed and the AGS endpoint claim with the lineitem
 // under review. resource_link is deliberately not required: standalone line
 // items are not coupled to a resource link.
+//
+// launch_presentation.return_url is not checked here: the primary spec
+// document is 1EdTech member-gated, and the accessible secondary material
+// describes obligations that apply only when return_url IS present (the
+// sender must support lti_errormsg/lti_msg query parameters on it), not a
+// requirement that it be present. Tools implementing submission review
+// should still read Claims.LaunchPresentation.ReturnURL when set to offer
+// the instructor a way back to the platform's gradebook; see CONFORMANCE.md.
 func (SubmissionReviewMessageValidator) Validate(claims *lticore.LTIClaims) error {
 	if err := validateVersion(lticore.MessageTypeSubmissionReview, claims); err != nil {
 		return err

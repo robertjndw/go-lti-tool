@@ -664,8 +664,8 @@ func TestAGS_SubmitScore_PostsToScoresEndpoint(t *testing.T) {
 
 	err := svc.SubmitScore(context.Background(), svcSrv.URL+"/lineitems/1", ags.Score{
 		UserID:           "user-42",
-		ScoreGiven:       ags.Float(85),
-		ScoreMaximum:     ags.Float(100),
+		ScoreGiven:       ags.Float64(85),
+		ScoreMaximum:     ags.Float64(100),
 		ActivityProgress: ags.ActivityProgressCompleted,
 		GradingProgress:  ags.GradingProgressFullyGraded,
 		Timestamp:        "2026-01-01T00:00:00Z",
@@ -736,7 +736,7 @@ func TestAGS_GetResults_Success_SinglePage(t *testing.T) {
 	conn := newConn(t, tokenSrv.URL)
 
 	results := []ags.Result{
-		{ID: "https://platform.example.com/results/1", UserID: "user-42", ResultScore: ags.Float(85), ResultMaximum: ags.Float(100)},
+		{ID: "https://platform.example.com/results/1", UserID: "user-42", ResultScore: ags.Float64(85), ResultMaximum: ags.Float64(100)},
 	}
 	var capturedPath string
 	var capturedAccept string
@@ -779,13 +779,13 @@ func TestAGS_GetResults_Paginated(t *testing.T) {
 			w.Header().Set("Link", fmt.Sprintf(`<%s>; rel="next"`, nextURL))
 			w.WriteHeader(http.StatusOK)
 			json.NewEncoder(w).Encode([]ags.Result{ //nolint:errcheck
-				{ID: "https://platform.example.com/results/1", UserID: "user-1", ResultScore: ags.Float(85)},
+				{ID: "https://platform.example.com/results/1", UserID: "user-1", ResultScore: ags.Float64(85)},
 			})
 			return
 		}
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode([]ags.Result{ //nolint:errcheck
-			{ID: "https://platform.example.com/results/2", UserID: "user-2", ResultScore: ags.Float(70)},
+			{ID: "https://platform.example.com/results/2", UserID: "user-2", ResultScore: ags.Float64(70)},
 		})
 	}))
 	t.Cleanup(svcSrv.Close)

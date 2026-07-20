@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"math/big"
 
 	"github.com/robertjndw/go-lti-tool/internal/lticore"
@@ -65,9 +66,15 @@ func (ks *KeySet) GetPrivateKey(kid string) (*rsa.PrivateKey, bool) {
 }
 
 // PublicJWKS encodes the tool's public key set as a JSON JWKS document.
+// Returns an error rather than panicking when a kid maps to a nil private
+// key (e.g. a Registration with no ToolPrivateKey) — a misconfigured
+// registration must fail JWKS generation cleanly, not crash the handler.
 func (ks *KeySet) PublicJWKS() ([]byte, error) {
 	doc := jwksDocument{}
 	for kid, priv := range ks.keys {
+		if priv == nil {
+			return nil, fmt.Errorf("jwks: no private key configured for kid %q", kid)
+		}
 		pub := &priv.PublicKey
 		jwk := publicJWK{
 			KTY: "RSA",

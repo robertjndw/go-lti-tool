@@ -88,11 +88,12 @@ li, err := svc.FindOrCreateLineitem(ctx, ags.Lineitem{
     Label: "Quiz 1", ScoreMaximum: 100,
 })
 
-// Submit a score.
+// Submit a score. ScoreGiven/ScoreMaximum are *float64 (via ags.Float64) so a
+// legitimate score of 0 is distinguishable from "no score".
 err = svc.SubmitScore(ctx, li.ID, ags.Score{
     UserID:           ld.Claims.Subject,
-    ScoreGiven:       85,
-    ScoreMaximum:     100,
+    ScoreGiven:       ags.Float64(85),
+    ScoreMaximum:     ags.Float64(100),
     ActivityProgress: ags.ActivityProgressCompleted,
     GradingProgress:  ags.GradingProgressFullyGraded,
     Timestamp:        time.Now().UTC().Format(time.RFC3339),

@@ -41,7 +41,8 @@ func newPlatformWithConfig(t *testing.T, mutate func(*dynreg.OpenIDConfiguration
 			if capturedScope != nil {
 				*capturedScope = req.Scope
 			}
-			resp := dynreg.ClientRegistrationResponse{ClientID: "client-abc", Scope: req.Scope}
+			resp := dynreg.ClientRegistrationResponse{ClientID: "client-abc"}
+			resp.Scope = req.Scope
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(resp) //nolint:errcheck
 

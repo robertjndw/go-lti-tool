@@ -50,6 +50,17 @@ var (
 	// ErrRegistrationFailed is returned when the platform's registration
 	// endpoint responds with a non-success status or an invalid body.
 	ErrRegistrationFailed = errors.New("lti/dynreg: platform registration failed")
+
+	// ErrIncompatibleDiscovery is returned when the platform's OpenID Provider
+	// Configuration affirmatively advertises something incompatible with this
+	// tool (e.g. response_types_supported present but without "id_token").
+	// This check applies regardless of StrictDiscovery.
+	ErrIncompatibleDiscovery = errors.New("lti/dynreg: platform discovery metadata is incompatible with this tool")
+
+	// ErrIncompleteDiscovery is returned only when DynRegConfig.StrictDiscovery
+	// is true and the platform's OpenID Provider Configuration omits an
+	// OIDC-discovery-REQUIRED field.
+	ErrIncompleteDiscovery = errors.New("lti/dynreg: platform discovery metadata is missing a required field (StrictDiscovery)")
 )
 
 // DynRegConfig holds all dependencies and tool-identity information needed for the
@@ -78,6 +89,17 @@ type DynRegConfig struct {
 	// to use http instead of https. Leave this disabled in production; it exists
 	// only for local development flows where the platform exposes insecure URLs.
 	AllowInsecureOpenIDConfigURL bool
+
+	// StrictDiscovery additionally requires the OIDC-discovery-REQUIRED fields
+	// (response_types_supported, id_token_signing_alg_values_supported,
+	// scopes_supported containing "openid", subject_types_supported) to be
+	// present in the platform's OpenID Provider Configuration. Default false:
+	// several real LMS discovery documents omit these fields, and the default
+	// behavior tolerates the omission rather than breaking working
+	// integrations. Regardless of this flag, any of those fields that IS
+	// present must be compatible with this tool (e.g. response_types_supported
+	// must include "id_token" when the platform advertises the field at all).
+	StrictDiscovery bool
 
 	// --- Tool identity fields (sent in the registration request) ---
 
@@ -156,6 +178,12 @@ type RegistrationResult struct {
 	// Deployment is non-nil when the platform assigned a deployment_id as part
 	// of the registration response.
 	Deployment *lticore.Deployment
+
+	// RegistrationClientURI and RegistrationAccessToken are present when the
+	// platform supports RFC 7592 read/update of this registration. Use them
+	// with ReadRegistration/UpdateRegistration.
+	RegistrationClientURI   string
+	RegistrationAccessToken string
 }
 
 // Handler returns an http.Handler for the tool's dynamic registration endpoint.
@@ -187,7 +215,7 @@ func Handler(cfg DynRegConfig) http.Handler {
 			// Surface only the top-level sentinel message; the full error chain
 			// may contain platform URLs or internal details.
 			msg := ErrRegistrationFailed.Error()
-			for _, sentinel := range []error{ErrMissingOpenIDConfigURL, ErrInvalidOpenIDConfigURL, ErrDomainMismatch, ErrOpenIDConfigFetch, ErrRegistrationFailed} {
+			for _, sentinel := range []error{ErrMissingOpenIDConfigURL, ErrInvalidOpenIDConfigURL, ErrDomainMismatch, ErrOpenIDConfigFetch, ErrIncompatibleDiscovery, ErrIncompleteDiscovery, ErrRegistrationFailed} {
 				if errors.Is(err, sentinel) {
 					msg = sentinel.Error()
 					break
@@ -247,7 +275,11 @@ func Register(ctx context.Context, cfg DynRegConfig, openidConfigURL, registrati
 		return nil, fmt.Errorf("%w: platform does not support private_key_jwt token endpoint authentication", ErrRegistrationFailed)
 	}
 
-	regReq := cfg.buildRequest(openidConfig.ScopesSupported)
+	if err := validateDiscoveryCompatibility(openidConfig, cfg.StrictDiscovery); err != nil {
+		return nil, err
+	}
+
+	regReq := cfg.buildRequest(openidConfig)
 	regResp, err := postRegistration(ctx, client, openidConfig.RegistrationEndpoint, registrationToken, regReq)
 	if err != nil {
 		return nil, err
@@ -288,39 +320,112 @@ func buildResult(openidConfig *OpenIDConfiguration, resp *ClientRegistrationResp
 		dep = &lticore.Deployment{DeploymentID: resp.LTIToolConfiguration.DeploymentID}
 	}
 
-	return &RegistrationResult{Registration: reg, Deployment: dep}
+	return &RegistrationResult{
+		Registration:            reg,
+		Deployment:              dep,
+		RegistrationClientURI:   resp.RegistrationClientURI,
+		RegistrationAccessToken: resp.RegistrationAccessToken,
+	}
 }
 
 // buildRequest assembles a ClientRegistrationRequest from the Config.
-// platformScopes, when non-empty, limits the requested scopes to those the
-// platform advertises — the LTI DR spec says tools should not request
-// unsupported scopes, and some platforms reject registrations that do.
-func (cfg *DynRegConfig) buildRequest(platformScopes []string) *ClientRegistrationRequest {
+// openidConfig's ScopesSupported, when non-empty, limits the requested
+// scopes to those the platform advertises — the LTI DR spec says tools
+// should not request unsupported scopes, and some platforms reject
+// registrations that do. Its LTIPlatformConfiguration.MessagesSupported,
+// when non-empty, similarly narrows the requested Messages.
+func (cfg *DynRegConfig) buildRequest(openidConfig *OpenIDConfiguration) *ClientRegistrationRequest {
 	return &ClientRegistrationRequest{
-		ApplicationType:         "web",
-		GrantTypes:              []string{"client_credentials", "implicit"},
-		ResponseTypes:           []string{"id_token"},
-		RedirectURIs:            cfg.RedirectURIs,
-		InitiateLoginURI:        cfg.InitiateLoginURL,
-		ClientName:              cfg.ToolName,
-		JWKSURL:                 cfg.JWKSURL,
-		TokenEndpointAuthMethod: "private_key_jwt",
-		Scope:                   strings.Join(cfg.scopes(platformScopes), " "),
-		LogoURI:                 cfg.LogoURI,
-		Contacts:                cfg.Contacts,
-		ClientURI:               cfg.ClientURI,
-		TOSURI:                  cfg.TOSURI,
-		PolicyURI:               cfg.PolicyURI,
-		LTIToolConfiguration: &LTIToolConfig{
-			Domain:           cfg.ToolDomain,
-			SecondaryDomains: cfg.SecondaryDomains,
-			TargetLinkURI:    cfg.TargetLinkURL,
-			CustomParameters: cfg.CustomParameters,
-			Description:      cfg.Description,
-			Claims:           cfg.Claims,
-			Messages:         cfg.Messages,
+		ClientMetadata: ClientMetadata{
+			ApplicationType:         "web",
+			GrantTypes:              []string{"client_credentials", "implicit"},
+			ResponseTypes:           []string{"id_token"},
+			RedirectURIs:            cfg.RedirectURIs,
+			InitiateLoginURI:        cfg.InitiateLoginURL,
+			ClientName:              cfg.ToolName,
+			JWKSURL:                 cfg.JWKSURL,
+			TokenEndpointAuthMethod: "private_key_jwt",
+			Scope:                   strings.Join(cfg.scopes(openidConfig.ScopesSupported), " "),
+			LogoURI:                 cfg.LogoURI,
+			Contacts:                cfg.Contacts,
+			ClientURI:               cfg.ClientURI,
+			TOSURI:                  cfg.TOSURI,
+			PolicyURI:               cfg.PolicyURI,
+			LTIToolConfiguration: &LTIToolConfig{
+				Domain:           cfg.ToolDomain,
+				SecondaryDomains: cfg.SecondaryDomains,
+				TargetLinkURI:    cfg.TargetLinkURL,
+				CustomParameters: cfg.CustomParameters,
+				Description:      cfg.Description,
+				Claims:           cfg.Claims,
+				Messages:         cfg.filteredMessages(openidConfig.LTIPlatformConfiguration),
+			},
 		},
 	}
+}
+
+// filteredMessages drops requested Messages whose Type is not in the
+// platform's messages_supported, when the platform advertised any (silent
+// narrowing, mirroring the scope intersection in scopes).
+func (cfg *DynRegConfig) filteredMessages(platformConfig *LTIPlatformConfig) []ToolMessage {
+	if platformConfig == nil || len(platformConfig.MessagesSupported) == 0 {
+		return cfg.Messages
+	}
+	supported := make(map[string]bool, len(platformConfig.MessagesSupported))
+	for _, m := range platformConfig.MessagesSupported {
+		supported[m.Type] = true
+	}
+	var out []ToolMessage
+	for _, m := range cfg.Messages {
+		if supported[m.Type] {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// validateDiscoveryCompatibility checks the platform's OpenID Provider
+// Configuration for compatibility with this tool. Fields the platform
+// affirmatively advertises are always checked for compatibility; when strict
+// is true, the OIDC-discovery-REQUIRED fields must additionally be present.
+func validateDiscoveryCompatibility(cfg *OpenIDConfiguration, strict bool) error {
+	if len(cfg.ResponseTypesSupported) > 0 && !slices.Contains(cfg.ResponseTypesSupported, "id_token") {
+		return fmt.Errorf("%w: response_types_supported %v does not include \"id_token\"", ErrIncompatibleDiscovery, cfg.ResponseTypesSupported)
+	}
+	if len(cfg.IDTokenSigningAlgValuesSupported) > 0 && !slices.Contains(cfg.IDTokenSigningAlgValuesSupported, "RS256") {
+		return fmt.Errorf("%w: id_token_signing_alg_values_supported %v does not include \"RS256\"", ErrIncompatibleDiscovery, cfg.IDTokenSigningAlgValuesSupported)
+	}
+	if len(cfg.TokenEndpointAuthSigningAlgValuesSupported) > 0 && !slices.Contains(cfg.TokenEndpointAuthSigningAlgValuesSupported, "RS256") {
+		return fmt.Errorf("%w: token_endpoint_auth_signing_alg_values_supported %v does not include \"RS256\"", ErrIncompatibleDiscovery, cfg.TokenEndpointAuthSigningAlgValuesSupported)
+	}
+	// A platform that advertises scopes_supported at all MUST support "openid"
+	// (OIDC Discovery §3) - a non-empty list omitting it is an affirmative
+	// incompatibility, not merely missing metadata.
+	if len(cfg.ScopesSupported) > 0 && !slices.Contains(cfg.ScopesSupported, "openid") {
+		return fmt.Errorf("%w: scopes_supported %v does not include \"openid\"", ErrIncompatibleDiscovery, cfg.ScopesSupported)
+	}
+	if !strict {
+		return nil
+	}
+	if len(cfg.ResponseTypesSupported) == 0 {
+		return fmt.Errorf("%w: response_types_supported is required", ErrIncompleteDiscovery)
+	}
+	if len(cfg.IDTokenSigningAlgValuesSupported) == 0 {
+		return fmt.Errorf("%w: id_token_signing_alg_values_supported is required", ErrIncompleteDiscovery)
+	}
+	if len(cfg.TokenEndpointAuthSigningAlgValuesSupported) == 0 {
+		return fmt.Errorf("%w: token_endpoint_auth_signing_alg_values_supported is required", ErrIncompleteDiscovery)
+	}
+	if !slices.Contains(cfg.ScopesSupported, "openid") {
+		return fmt.Errorf("%w: scopes_supported must contain \"openid\"", ErrIncompleteDiscovery)
+	}
+	if len(cfg.SubjectTypesSupported) == 0 {
+		return fmt.Errorf("%w: subject_types_supported is required", ErrIncompleteDiscovery)
+	}
+	if !slices.Contains(cfg.SubjectTypesSupported, "public") && !slices.Contains(cfg.SubjectTypesSupported, "pairwise") {
+		return fmt.Errorf("%w: subject_types_supported %v does not contain a recognized value (\"public\" or \"pairwise\")", ErrIncompleteDiscovery, cfg.SubjectTypesSupported)
+	}
+	return nil
 }
 
 // scopes returns the configured scopes, always prepending "openid" and
@@ -489,6 +594,76 @@ func postRegistration(ctx context.Context, client *http.Client, endpoint, token 
 		return nil, fmt.Errorf("%w: response missing client_id", ErrRegistrationFailed)
 	}
 	return &regResp, nil
+}
+
+// ReadRegistration fetches the current client registration (RFC 7592).
+// client may be nil, in which case http.DefaultClient is used.
+func ReadRegistration(ctx context.Context, client *http.Client, registrationClientURI, registrationAccessToken string) (*ClientRegistrationResponse, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, registrationClientURI, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+registrationAccessToken)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBodyBytes))
+		return nil, fmt.Errorf("%w: read registration returned HTTP %d", ErrRegistrationFailed, resp.StatusCode)
+	}
+
+	var out ClientRegistrationResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBodyBytes)).Decode(&out); err != nil {
+		return nil, fmt.Errorf("%w: decode registration: %w", ErrRegistrationFailed, err)
+	}
+	return &out, nil
+}
+
+// UpdateRegistration replaces the client registration (RFC 7592 §2.2). upd
+// should be built from a ReadRegistration result and mutated — partial
+// updates are not defined by the RFC. client may be nil, in which case
+// http.DefaultClient is used.
+func UpdateRegistration(ctx context.Context, client *http.Client, registrationClientURI, registrationAccessToken string, upd *ClientRegistrationUpdate) (*ClientRegistrationResponse, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	body, err := json.Marshal(upd)
+	if err != nil {
+		return nil, fmt.Errorf("%w: marshal registration update: %w", ErrRegistrationFailed, err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, registrationClientURI, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+registrationAccessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBodyBytes))
+		return nil, fmt.Errorf("%w: update registration returned HTTP %d", ErrRegistrationFailed, resp.StatusCode)
+	}
+
+	var out ClientRegistrationResponse
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBodyBytes)).Decode(&out); err != nil {
+		return nil, fmt.Errorf("%w: decode registration: %w", ErrRegistrationFailed, err)
+	}
+	return &out, nil
 }
 
 // closePage is returned to the browser after a successful registration.

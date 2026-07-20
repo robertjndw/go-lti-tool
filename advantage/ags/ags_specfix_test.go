@@ -17,8 +17,8 @@ import (
 func TestScore_ZeroScoreGiven_IsSerialized(t *testing.T) {
 	s := ags.Score{
 		UserID:           "user-42",
-		ScoreGiven:       ags.Float(0),
-		ScoreMaximum:     ags.Float(100),
+		ScoreGiven:       ags.Float64(0),
+		ScoreMaximum:     ags.Float64(100),
 		ActivityProgress: ags.ActivityProgressCompleted,
 		GradingProgress:  ags.GradingProgressFullyGraded,
 		Timestamp:        "2026-01-01T00:00:00Z",
@@ -47,7 +47,7 @@ func TestAGS_SubmitScore_ScoreGivenWithoutMaximum_Rejected(t *testing.T) {
 
 	err := svc.SubmitScore(context.Background(), "https://platform.example.com/lineitems/1", ags.Score{
 		UserID:           "user-42",
-		ScoreGiven:       ags.Float(50),
+		ScoreGiven:       ags.Float64(50),
 		ActivityProgress: ags.ActivityProgressCompleted,
 		GradingProgress:  ags.GradingProgressFullyGraded,
 		Timestamp:        "2026-01-01T00:00:00Z",
@@ -164,8 +164,8 @@ func TestAGS_SubmitScore_RequiredFields(t *testing.T) {
 		"missing GradingProgress":  func(s *ags.Score) { s.GradingProgress = "" },
 		"missing Timestamp":        func(s *ags.Score) { s.Timestamp = "" },
 		"non-positive ScoreMaximum": func(s *ags.Score) {
-			s.ScoreGiven = ags.Float(1)
-			s.ScoreMaximum = ags.Float(0)
+			s.ScoreGiven = ags.Float64(1)
+			s.ScoreMaximum = ags.Float64(0)
 		},
 	}
 	for name, mutate := range cases {

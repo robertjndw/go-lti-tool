@@ -1,7 +1,10 @@
-// Package lti is a Go SDK for LTI 1.3 (Learning Tools Interoperability).
-// It targets tool implementations, covering the full LTI Advantage surface:
-// OIDC launch flow, Assignment & Grade Services (AGS), Names & Role Provisioning
-// Services (NRPS), and Deep Linking.
+// Package lti is a Go SDK for LTI 1.3 (Learning Tools Interoperability),
+// targeting tool implementations (not platforms): the OIDC launch flow, the
+// final LTI Advantage services (AGS 2.0, NRPS 2.0, Deep Linking 2.0),
+// Dynamic Registration, Submission Review, the LTI 1.1 migration claim, and
+// selected opt-in candidate/draft extensions. LTI is a family of final,
+// candidate, and draft specifications; this package does not implement "the
+// full LTI spec" — see CONFORMANCE.md for the maintained per-spec stance.
 //
 // The easiest entry point is [NewTool], which wires everything together and
 // returns http.Handlers directly. Sub-packages (login, launch, jwks, …) remain
@@ -21,6 +24,7 @@ import (
 type (
 	LTIClaims           = lticore.LTIClaims
 	Audience            = lticore.Audience
+	CustomParameters    = lticore.CustomParameters
 	ResourceLink        = lticore.ResourceLink
 	ContextClaim        = lticore.ContextClaim
 	LISClaim            = lticore.LISClaim
@@ -31,6 +35,7 @@ type (
 	DeepLinkingSettings = lticore.DeepLinkingSettings
 	ForUserClaim        = lticore.ForUserClaim
 	LTI11Claim          = lticore.LTI11Claim
+	PlatformError       = lticore.PlatformError
 
 	Registration = lticore.Registration
 	Deployment   = lticore.Deployment
@@ -53,6 +58,12 @@ func ParsePrivateKey(pemBytes []byte) (*rsa.PrivateKey, error) {
 	return lticore.ParsePrivateKey(pemBytes)
 }
 
+// VerifyLTI11ConsumerKeySign verifies an LTI 1.1 migration claim signature.
+// See lticore.VerifyLTI11ConsumerKeySign for the exact algorithm.
+func VerifyLTI11ConsumerKeySign(claims *LTIClaims, clientID, oauthConsumerSecret string) error {
+	return lticore.VerifyLTI11ConsumerKeySign(claims, clientID, oauthConsumerSecret)
+}
+
 // ── Error re-exports ──────────────────────────────────────────────────────────
 // Assigning the lticore var means both names hold the same error pointer,
 // so errors.Is(err, lti.ErrX) and errors.Is(err, lticore.ErrX) are equivalent.
@@ -72,6 +83,8 @@ var (
 	ErrAGSNotAvailable         = lticore.ErrAGSNotAvailable
 	ErrNRPSNotAvailable        = lticore.ErrNRPSNotAvailable
 	ErrDeepLinkingNotAvailable = lticore.ErrDeepLinkingNotAvailable
+	ErrLTI11ClaimMissing       = lticore.ErrLTI11ClaimMissing
+	ErrLTI11SignInvalid        = lticore.ErrLTI11SignInvalid
 )
 
 // ── Constant re-exports ───────────────────────────────────────────────────────
@@ -86,6 +99,7 @@ const (
 	MessageTypeDeepLinking         = lticore.MessageTypeDeepLinking
 	MessageTypeDeepLinkingResponse = lticore.MessageTypeDeepLinkingResponse
 	MessageTypeSubmissionReview    = lticore.MessageTypeSubmissionReview
+	MessageTypeDataPrivacyLaunch   = lticore.MessageTypeDataPrivacyLaunch
 
 	LTIVersion = lticore.LTIVersion
 

@@ -1,6 +1,9 @@
 package lticore
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strconv"
+)
 
 // LTIClaims is the fully-parsed body of a validated LTI launch JWT.
 // Standard OIDC fields sit alongside LTI-namespaced claims.
@@ -38,7 +41,7 @@ type LTIClaims struct {
 	Context *ContextClaim `json:"https://purl.imsglobal.org/spec/lti/claim/context,omitempty"`
 
 	// Optional key-value custom parameters.
-	Custom map[string]string `json:"https://purl.imsglobal.org/spec/lti/claim/custom,omitempty"`
+	Custom CustomParameters `json:"https://purl.imsglobal.org/spec/lti/claim/custom,omitempty"`
 
 	// RoleScopeMentor lists the user IDs a Mentor-role user may access.
 	RoleScopeMentor []string `json:"https://purl.imsglobal.org/spec/lti/claim/role_scope_mentor,omitempty"`
@@ -94,6 +97,14 @@ type LTI11Claim struct {
 	UserID               string `json:"user_id,omitempty"`
 	OAuthConsumerKey     string `json:"oauth_consumer_key,omitempty"`
 	OAuthConsumerKeySign string `json:"oauth_consumer_key_sign,omitempty"`
+	// ContextID is the launch's LTI 1.1 context_id, present when it differs
+	// from the LTI 1.3 context.id (migration guide §6.1).
+	ContextID string `json:"context_id,omitempty"`
+	// ToolConsumerInstanceGUID is the LTI 1.1 tool_consumer_instance_guid.
+	ToolConsumerInstanceGUID string `json:"tool_consumer_instance_guid,omitempty"`
+	// ResourceLinkID is the LTI 1.1 resource_link_id, present when it differs
+	// from the LTI 1.3 resource_link.id.
+	ResourceLinkID string `json:"resource_link_id,omitempty"`
 }
 
 // ContextClaim holds course/section context information.
@@ -120,12 +131,52 @@ type LaunchPresentation struct {
 	Locale         string  `json:"locale,omitempty"`
 }
 
+// UnmarshalJSON tolerates platforms that send height/width as numeric
+// strings instead of numbers (a schema violation, but one that shouldn't
+// fail the whole launch). An unparsable string decodes as 0, not an error.
+func (lp *LaunchPresentation) UnmarshalJSON(data []byte) error {
+	type shadow LaunchPresentation
+	aux := &struct {
+		Height json.RawMessage `json:"height,omitempty"`
+		Width  json.RawMessage `json:"width,omitempty"`
+		*shadow
+	}{shadow: (*shadow)(lp)}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	lp.Height = parseNumericOrString(aux.Height)
+	lp.Width = parseNumericOrString(aux.Width)
+	return nil
+}
+
+// parseNumericOrString decodes raw as a JSON number or, failing that, a
+// numeric string. Absent or unparsable input yields 0.
+func parseNumericOrString(raw json.RawMessage) float64 {
+	if len(raw) == 0 {
+		return 0
+	}
+	var f float64
+	if err := json.Unmarshal(raw, &f); err == nil {
+		return f
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if v, err := strconv.ParseFloat(s, 64); err == nil {
+			return v
+		}
+	}
+	return 0
+}
+
 // ToolPlatform holds platform product information.
 type ToolPlatform struct {
 	GUID              string `json:"guid,omitempty"`
 	Name              string `json:"name,omitempty"`
 	Version           string `json:"version,omitempty"`
 	ProductFamilyCode string `json:"product_family_code,omitempty"`
+	URL               string `json:"url,omitempty"`
+	Description       string `json:"description,omitempty"`
+	ContactEmail      string `json:"contact_email,omitempty"`
 }
 
 // AGSClaim is the LTI Advantage Assignment & Grade Services endpoint descriptor.
@@ -157,6 +208,42 @@ type DeepLinkingSettings struct {
 	Title                             string   `json:"title,omitempty"`
 	Text                              string   `json:"text,omitempty"`
 	Data                              string   `json:"data,omitempty"`
+	// AcceptLineItem indicates whether the platform supports a lineItem on an
+	// ltiResourceLink content item. Nil means no assumption can be made
+	// (added to the DL 2.0 schema in 2023); false means line items will be
+	// ignored; true means the platform will create one.
+	AcceptLineItem *bool `json:"accept_lineitem,omitempty"`
+}
+
+// CustomParameters is a map of custom launch parameters. The LTI spec
+// requires string values; the UnmarshalJSON below tolerates platforms that
+// send numbers or booleans by coercing them to strings, since failing the
+// whole launch punishes the user for a platform-side spec violation, not the
+// platform. null/array/object values are skipped rather than erroring.
+type CustomParameters map[string]string
+
+// UnmarshalJSON coerces numeric and boolean values to strings; null, array,
+// and object values are skipped (the key is dropped, not an error).
+func (c *CustomParameters) UnmarshalJSON(data []byte) error {
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	out := make(CustomParameters, len(raw))
+	for k, v := range raw {
+		switch val := v.(type) {
+		case string:
+			out[k] = val
+		case float64:
+			out[k] = strconv.FormatFloat(val, 'f', -1, 64)
+		case bool:
+			out[k] = strconv.FormatBool(val)
+		default:
+			// null, array, object: skip key, never error.
+		}
+	}
+	*c = out
+	return nil
 }
 
 // Audience handles the JWT "aud" claim which may be a single string or an array of strings.

@@ -75,3 +75,41 @@ func TestNRPS_GetMemberships_ContextAndDifferences(t *testing.T) {
 		t.Errorf("differences URL not captured, got %q", m.DifferencesURL)
 	}
 }
+
+// Task 1.7: nrps.Member gains middle_name.
+func TestNRPS_Member_MiddleName_RoundTrips(t *testing.T) {
+	tokenSrv := newTokenServer(t)
+	conn := newConn(t, tokenSrv.URL)
+
+	svcSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		resp := map[string]any{
+			"id":      "http://x/m",
+			"context": map[string]string{"id": "ctx-1"},
+			"members": []map[string]any{
+				{
+					"status":      "Active",
+					"user_id":     "u1",
+					"roles":       []string{lti.RoleLearner},
+					"given_name":  "Jane",
+					"middle_name": "Q",
+					"family_name": "Learner",
+				},
+			},
+		}
+		json.NewEncoder(w).Encode(resp) //nolint:errcheck
+	}))
+	t.Cleanup(svcSrv.Close)
+
+	svc := nrps.New(conn, &lti.NRPSClaim{ContextMembershipsURL: svcSrv.URL + "/memberships"})
+	m, err := svc.GetMemberships(context.Background())
+	if err != nil {
+		t.Fatalf("GetMemberships failed: %v", err)
+	}
+	if len(m.Members) != 1 {
+		t.Fatalf("expected 1 member, got %d", len(m.Members))
+	}
+	if m.Members[0].MiddleName != "Q" {
+		t.Errorf("MiddleName = %q, want %q", m.Members[0].MiddleName, "Q")
+	}
+}

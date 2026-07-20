@@ -233,6 +233,25 @@ func TestSubmissionReviewValidator_Valid_Passes(t *testing.T) {
 	}
 }
 
+// Task 1.11: launch_presentation.return_url is not confirmed as REQUIRED
+// (the primary spec is member-gated); a submission review launch without it
+// must still pass. See the validator's doc comment and CONFORMANCE.md.
+func TestSubmissionReviewValidator_MissingReturnURL_StillPasses(t *testing.T) {
+	v := launch.SubmissionReviewMessageValidator{}
+	c := &lti.LTIClaims{
+		Subject:            "user-1",
+		MessageType:        lti.MessageTypeSubmissionReview,
+		Version:            lti.LTIVersion,
+		Roles:              []string{lti.RoleInstructor},
+		ForUser:            &lti.ForUserClaim{UserID: "student-9"},
+		AGS:                &lti.AGSClaim{Lineitem: "https://platform.example.com/lineitems/1"},
+		LaunchPresentation: nil,
+	}
+	if err := v.Validate(c); err != nil {
+		t.Errorf("expected nil error when launch_presentation.return_url is absent, got %v", err)
+	}
+}
+
 // Submission Review spec: the for_user claim is required.
 func TestSubmissionReviewValidator_MissingForUser_Fails(t *testing.T) {
 	v := launch.SubmissionReviewMessageValidator{}
@@ -271,6 +290,61 @@ func TestSubmissionReviewValidator_MissingLineitem_Fails(t *testing.T) {
 	c.AGS = &lti.AGSClaim{Lineitems: "https://platform.example.com/lineitems"}
 	if err := v.Validate(c); err == nil {
 		t.Error("expected error for AGS claim without lineitem")
+	}
+}
+
+// ── DataPrivacyMessageValidator ───────────────────────────────────────────────
+
+// Task 1.9: DataPrivacyMessageValidator must only handle LtiDataPrivacyLaunchRequest.
+func TestDataPrivacyValidator_CanValidate(t *testing.T) {
+	v := launch.DataPrivacyMessageValidator{}
+
+	if !v.CanValidate(&lti.LTIClaims{MessageType: lti.MessageTypeDataPrivacyLaunch}) {
+		t.Error("must return true for LtiDataPrivacyLaunchRequest")
+	}
+	if v.CanValidate(&lti.LTIClaims{MessageType: lti.MessageTypeResourceLink}) {
+		t.Error("must return false for LtiResourceLinkRequest")
+	}
+}
+
+func TestDataPrivacyValidator_Valid_Passes(t *testing.T) {
+	v := launch.DataPrivacyMessageValidator{}
+	c := &lti.LTIClaims{
+		MessageType: lti.MessageTypeDataPrivacyLaunch,
+		Version:     lti.LTIVersion,
+		Roles:       []string{lti.RoleInstitutionAdministrator},
+		ForUser:     &lti.ForUserClaim{UserID: "student-9"},
+	}
+	if err := v.Validate(c); err != nil {
+		t.Errorf("expected nil error, got %v", err)
+	}
+}
+
+func TestDataPrivacyValidator_MissingForUser_Fails(t *testing.T) {
+	v := launch.DataPrivacyMessageValidator{}
+	c := &lti.LTIClaims{
+		MessageType: lti.MessageTypeDataPrivacyLaunch,
+		Version:     lti.LTIVersion,
+		Roles:       []string{lti.RoleInstitutionAdministrator},
+	}
+	if err := v.Validate(c); err == nil {
+		t.Error("expected error for missing for_user claim")
+	}
+
+	c.ForUser = &lti.ForUserClaim{}
+	if err := v.Validate(c); err == nil {
+		t.Error("expected error for empty for_user.user_id")
+	}
+}
+
+// A default Tool's Config leaves DataPrivacyMessageValidator out, so an
+// unconfigured launch of this message type still fails with "no validator
+// found" rather than silently being accepted.
+func TestDataPrivacyValidator_NotInDefaultValidators(t *testing.T) {
+	for _, v := range launch.DefaultValidators() {
+		if v.CanValidate(&lti.LTIClaims{MessageType: lti.MessageTypeDataPrivacyLaunch}) {
+			t.Error("DataPrivacyMessageValidator must not be part of DefaultValidators()")
+		}
 	}
 }
 

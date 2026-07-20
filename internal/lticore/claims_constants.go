@@ -14,6 +14,11 @@ const (
 	MessageTypeDeepLinking         = "LtiDeepLinkingRequest"
 	MessageTypeDeepLinkingResponse = "LtiDeepLinkingResponse"
 	MessageTypeSubmissionReview    = "LtiSubmissionReviewRequest"
+	// MessageTypeDataPrivacyLaunch is the Data Privacy Launch (Draft spec)
+	// message type. The primary specification document is 1EdTech
+	// member-gated; this string is not independently verified against the
+	// live text. Re-confirm before relying on it in a certification context.
+	MessageTypeDataPrivacyLaunch = "LtiDataPrivacyLaunchRequest"
 )
 
 // LTI version.

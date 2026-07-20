@@ -31,7 +31,10 @@ func TestHasNRPS(t *testing.T) {
 		want bool
 	}{
 		{"nil NRPS", nil, false},
-		{"NRPS with URL", &NRPSClaim{ContextMembershipsURL: "https://platform.example.com/nrps"}, true},
+		{"NRPS 2.0 with URL", &NRPSClaim{ContextMembershipsURL: "https://platform.example.com/nrps", ServiceVersions: []string{"2.0"}}, true},
+		{"NRPS URL without service version", &NRPSClaim{ContextMembershipsURL: "https://platform.example.com/nrps"}, false},
+		{"NRPS URL with unsupported version", &NRPSClaim{ContextMembershipsURL: "https://platform.example.com/nrps", ServiceVersions: []string{"1.0"}}, false},
+		{"NRPS URL with 2.0 among versions", &NRPSClaim{ContextMembershipsURL: "https://platform.example.com/nrps", ServiceVersions: []string{"1.0", "2.0"}}, true},
 		{"NRPS without URL", &NRPSClaim{ServiceVersions: []string{"2.0"}}, false},
 	}
 	for _, tt := range tests {

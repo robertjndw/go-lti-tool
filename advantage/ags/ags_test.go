@@ -20,11 +20,13 @@ import (
 func newTokenServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm() //nolint:errcheck
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"access_token": "test-access-token",
 			"token_type":   "Bearer",
 			"expires_in":   3600,
+			"scope":        r.Form.Get("scope"),
 		})
 	}))
 	t.Cleanup(srv.Close)
@@ -668,7 +670,7 @@ func TestAGS_SubmitScore_PostsToScoresEndpoint(t *testing.T) {
 		ScoreMaximum:     ags.Float64(100),
 		ActivityProgress: ags.ActivityProgressCompleted,
 		GradingProgress:  ags.GradingProgressFullyGraded,
-		Timestamp:        "2026-01-01T00:00:00Z",
+		Timestamp:        "2026-01-01T00:00:00.123Z",
 	})
 	if err != nil {
 		t.Fatalf("SubmitScore failed: %v", err)
@@ -698,7 +700,7 @@ func TestAGS_SubmitScore_Success201(t *testing.T) {
 		UserID:           "user-42",
 		ActivityProgress: ags.ActivityProgressCompleted,
 		GradingProgress:  ags.GradingProgressFullyGraded,
-		Timestamp:        "2026-01-01T00:00:00Z",
+		Timestamp:        "2026-01-01T00:00:00.123Z",
 	})
 	if err != nil {
 		t.Errorf("expected success for 201 response, got %v", err)
@@ -721,7 +723,7 @@ func TestAGS_SubmitScore_Non200_ReturnsError(t *testing.T) {
 		UserID:           "user-42",
 		ActivityProgress: ags.ActivityProgressCompleted,
 		GradingProgress:  ags.GradingProgressFullyGraded,
-		Timestamp:        "2026-01-01T00:00:00Z",
+		Timestamp:        "2026-01-01T00:00:00.123Z",
 	})
 	if err == nil {
 		t.Error("expected error for non-200/201 response, got nil")
@@ -893,7 +895,7 @@ func TestAGS_SubmitScore_LineitemURLWithQueryString_PreservesQuery(t *testing.T)
 		UserID:           "user-42",
 		ActivityProgress: ags.ActivityProgressCompleted,
 		GradingProgress:  ags.GradingProgressFullyGraded,
-		Timestamp:        "2026-01-01T00:00:00Z",
+		Timestamp:        "2026-01-01T00:00:00.123Z",
 	})
 
 	if capturedPath != "/lineitems/1/scores" {

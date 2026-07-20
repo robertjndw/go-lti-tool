@@ -98,7 +98,10 @@ func TestLaunchData_HasAGS_True_WhenOnlyLineitemSet(t *testing.T) {
 func TestLaunchData_HasNRPS_True(t *testing.T) {
 	ld := &lti.Launch{
 		Claims: &lti.LTIClaims{
-			NRPS: &lti.NRPSClaim{ContextMembershipsURL: "https://platform.example.com/memberships"},
+			NRPS: &lti.NRPSClaim{
+				ContextMembershipsURL: "https://platform.example.com/memberships",
+				ServiceVersions:       []string{"2.0"},
+			},
 		},
 	}
 	if !ld.HasNRPS() {

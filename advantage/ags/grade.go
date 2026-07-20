@@ -30,6 +30,20 @@ type Score struct {
 
 	// Timestamp is the ISO 8601 datetime when the score was recorded.
 	Timestamp string `json:"timestamp"`
+
+	// ScoringUserID identifies the user who performed the grading, when it
+	// differs from the learner named by UserID (e.g. submission review flows).
+	ScoringUserID string `json:"scoringUserId,omitempty"`
+
+	// Submission carries the learner's submission timing, when known.
+	Submission *ScoreSubmission `json:"submission,omitempty"`
+}
+
+// ScoreSubmission describes when a learner's submission was started and/or
+// submitted (both ISO 8601 datetimes).
+type ScoreSubmission struct {
+	StartedAt   string `json:"startedAt,omitempty"`
+	SubmittedAt string `json:"submittedAt,omitempty"`
 }
 
 // ActivityProgress constants (LTI AGS spec §3.1).
@@ -70,4 +84,17 @@ type Result struct {
 
 	// ScoreOf is the URL of the line item this result belongs to.
 	ScoreOf string `json:"scoreOf,omitempty"`
+
+	// ScoringUserID identifies the user who performed the grading, when it
+	// differs from the learner named by UserID.
+	ScoringUserID string `json:"scoringUserId,omitempty"`
+}
+
+// EffectiveResultMaximum returns ResultMaximum, or the AGS-defined default of
+// 1 when the platform omitted it.
+func (r Result) EffectiveResultMaximum() float64 {
+	if r.ResultMaximum == nil {
+		return 1
+	}
+	return *r.ResultMaximum
 }

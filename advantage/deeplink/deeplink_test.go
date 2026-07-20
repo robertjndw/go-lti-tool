@@ -350,7 +350,7 @@ func TestResponseFormHTML_ReturnURL_IsHTMLEscaped(t *testing.T) {
 		KID:            "tool-key-1",
 	}
 	settings := &lti.DeepLinkingSettings{
-		DeepLinkReturnURL:                 `https://platform.example.com/return"><script>alert(1)</script>`,
+		DeepLinkReturnURL:                 `https://platform.example.com/return?next=%22%3E%3Cscript%3Ealert%281%29%3C%2Fscript%3E`,
 		AcceptTypes:                       []string{"ltiResourceLink"},
 		AcceptPresentationDocumentTargets: []string{"iframe"},
 	}
@@ -360,7 +360,7 @@ func TestResponseFormHTML_ReturnURL_IsHTMLEscaped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResponseFormHTML failed: %v", err)
 	}
-	// The raw injection string must not appear verbatim in the output.
+	// Percent-encoded metacharacters must remain data and must not become markup.
 	if strings.Contains(html, `"><script>`) {
 		t.Error("return URL injection not escaped: raw <script> tag found in HTML output")
 	}

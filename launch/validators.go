@@ -91,8 +91,12 @@ func (DeepLinkMessageValidator) Validate(claims *lticore.LTIClaims) error {
 	if len(claims.DeepLinkingSettings.AcceptTypes) == 0 {
 		return fmt.Errorf("lti: %s accept_types is empty", lticore.MessageTypeDeepLinking)
 	}
-	if len(claims.DeepLinkingSettings.AcceptPresentationDocumentTargets) == 0 {
-		return fmt.Errorf("lti: %s accept_presentation_document_targets is empty", lticore.MessageTypeDeepLinking)
+	// accept_presentation_document_targets is a required property: the key
+	// must be present (a nil slice means it was absent from the JSON), but
+	// the DL 2.0 schema does not set minItems: 1, so an empty array — a
+	// platform accepting no presentation target — is a valid present value.
+	if claims.DeepLinkingSettings.AcceptPresentationDocumentTargets == nil {
+		return fmt.Errorf("lti: %s missing accept_presentation_document_targets", lticore.MessageTypeDeepLinking)
 	}
 	return nil
 }

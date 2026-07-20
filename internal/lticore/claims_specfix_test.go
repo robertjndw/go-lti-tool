@@ -45,73 +45,60 @@ func TestLTIClaims_NewClaims_Unmarshal(t *testing.T) {
 	}
 }
 
-// Task 1.6: custom claim values sent as numbers/booleans are coerced to
-// strings instead of failing the launch; null/array/object values are
-// skipped. A full-claims unmarshal with a numeric custom value must not error.
-func TestCustomParameters_CoercesScalarsAndSkipsComplexValues(t *testing.T) {
+// Core defines custom as a string-to-string map. Numeric, boolean, null,
+// array, and object values are schema violations and must not be silently
+// coerced or discarded by strict launch decoding.
+func TestCustomParameters_RejectsNonStringValues(t *testing.T) {
+	for name, payload := range map[string]string{
+		"number":  `{"points": 5}`,
+		"boolean": `{"flag": true}`,
+		"null":    `{"value": null}`,
+		"array":   `{"value": [1]}`,
+		"object":  `{"value": {"a": 1}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var c CustomParameters
+			if err := json.Unmarshal([]byte(payload), &c); err == nil {
+				t.Errorf("expected non-string custom value to be rejected: %s", payload)
+			}
+		})
+	}
+}
+
+func TestCustomParameters_StringValuesRoundTrip(t *testing.T) {
+	payload := `{"empty":"","points":"5","flag":"true"}`
 	var c CustomParameters
-	payload := `{"points": 5, "flag": true, "name": "x", "bad": [1], "nullish": null, "obj": {"a":1}}`
 	if err := json.Unmarshal([]byte(payload), &c); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+		t.Fatalf("valid string custom values rejected: %v", err)
 	}
-	want := CustomParameters{"points": "5", "flag": "true", "name": "x"}
-	if len(c) != len(want) {
-		t.Fatalf("got %v, want %v", c, want)
-	}
-	for k, v := range want {
-		if c[k] != v {
-			t.Errorf("c[%q] = %q, want %q", k, c[k], v)
-		}
-	}
-	if _, ok := c["bad"]; ok {
-		t.Error("array value must be skipped, not present")
-	}
-	if _, ok := c["nullish"]; ok {
-		t.Error("null value must be skipped, not present")
-	}
-	if _, ok := c["obj"]; ok {
-		t.Error("object value must be skipped, not present")
+	if c["empty"] != "" || c["points"] != "5" || c["flag"] != "true" {
+		t.Errorf("Custom = %v", c)
 	}
 }
 
-func TestLTIClaims_FullUnmarshal_NumericCustomValue_NoError(t *testing.T) {
-	payload := `{
-		"iss": "https://platform.example.com",
-		"https://purl.imsglobal.org/spec/lti/claim/custom": {"points": 5, "flag": true, "name": "x"}
-	}`
-	var c LTIClaims
-	if err := json.Unmarshal([]byte(payload), &c); err != nil {
-		t.Fatalf("unmarshal must not fail on numeric/boolean custom values: %v", err)
-	}
-	if c.Custom["points"] != "5" || c.Custom["flag"] != "true" || c.Custom["name"] != "x" {
-		t.Errorf("Custom = %v", c.Custom)
+// Core's launch_presentation schema defines height and width as JSON numbers.
+func TestLaunchPresentation_HeightWidthRequireNumbers(t *testing.T) {
+	for name, payload := range map[string]string{
+		"numeric height string": `{"height":"800"}`,
+		"invalid height string": `{"height":"not-a-number"}`,
+		"numeric width string":  `{"width":"600"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var lp LaunchPresentation
+			if err := json.Unmarshal([]byte(payload), &lp); err == nil {
+				t.Errorf("expected string dimension to be rejected: %s", payload)
+			}
+		})
 	}
 }
 
-// Task 1.6: launch_presentation height/width accept a JSON number or a
-// numeric string; an unparsable string decodes as 0, not an error.
-func TestLaunchPresentation_HeightWidth_AcceptsNumberOrString(t *testing.T) {
-	payload := `{"height": "800", "width": 600}`
+func TestLaunchPresentation_HeightWidthNumbersAccepted(t *testing.T) {
 	var lp LaunchPresentation
-	if err := json.Unmarshal([]byte(payload), &lp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
+	if err := json.Unmarshal([]byte(`{"height":800,"width":600}`), &lp); err != nil {
+		t.Fatalf("numeric dimensions rejected: %v", err)
 	}
-	if lp.Height != 800 {
-		t.Errorf("Height = %v, want 800", lp.Height)
-	}
-	if lp.Width != 600 {
-		t.Errorf("Width = %v, want 600", lp.Width)
-	}
-}
-
-func TestLaunchPresentation_UnparsableHeightString_DecodesAsZero(t *testing.T) {
-	payload := `{"height": "not-a-number"}`
-	var lp LaunchPresentation
-	if err := json.Unmarshal([]byte(payload), &lp); err != nil {
-		t.Fatalf("unmarshal must not error on an unparsable numeric string: %v", err)
-	}
-	if lp.Height != 0 {
-		t.Errorf("Height = %v, want 0", lp.Height)
+	if lp.Height != 800 || lp.Width != 600 {
+		t.Errorf("dimensions = %vx%v, want 600x800", lp.Width, lp.Height)
 	}
 }
 

@@ -8,6 +8,7 @@ package login
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -37,6 +38,12 @@ type Config struct {
 	// validating here follows the IMS security guidance of never trusting the
 	// unsigned login request. Empty means no restriction.
 	AllowedRedirectHosts []string
+
+	// RequireHTTPSTargetLinkURI rejects a login initiation whose target_link_uri
+	// is not https. The 1EdTech Security Framework requires TLS for LTI messages
+	// and resource URLs; this defaults to false to keep local-development http
+	// tools working, and should be enabled for spec-strict/production deployments.
+	RequireHTTPSTargetLinkURI bool
 }
 
 func (c *Config) cookieHandler() lticore.CookieHandler {
@@ -53,7 +60,11 @@ func Handler(cfg Config) http.Handler {
 		redirectURL, cookies, err := HandleLogin(r.Context(), cfg, r)
 		if err != nil {
 			log.Printf("lti/login: %v", err)
-			http.Error(w, "login initiation failed", http.StatusBadRequest)
+			status := http.StatusBadRequest
+			if errors.Is(err, lticore.ErrRegistrationNotFound) {
+				status = http.StatusForbidden
+			}
+			http.Error(w, "login initiation failed", status)
 			return
 		}
 		for _, c := range cookies {
@@ -87,7 +98,7 @@ func HandleLogin(ctx context.Context, cfg Config, r *http.Request) (redirectURL 
 	clientID := r.FormValue("client_id")
 	ltiDeploymentID := r.FormValue("lti_deployment_id")
 
-	if err := validateTargetLinkURI(targetLinkURI, cfg.AllowedRedirectHosts); err != nil {
+	if err := validateTargetLinkURI(targetLinkURI, cfg.AllowedRedirectHosts, cfg.RequireHTTPSTargetLinkURI); err != nil {
 		return "", nil, err
 	}
 
@@ -116,10 +127,19 @@ func HandleLogin(ctx context.Context, cfg Config, r *http.Request) (redirectURL 
 	cookieName := "lti1p3_" + state
 	ch := cfg.cookieHandler()
 
+	cookieValue, err := lticore.EncodeStateCookie(lticore.StateCookieData{
+		State:         state,
+		Nonce:         nonce,
+		TargetLinkURI: targetLinkURI,
+	})
+	if err != nil {
+		return "", nil, fmt.Errorf("lti/login: failed to encode state cookie: %w", err)
+	}
+
 	var cookieList []*http.Cookie
 	// We collect cookies by using a temporary response writer that captures Set-Cookie headers.
 	recorder := &cookieRecorder{}
-	if err := ch.SetCookie(recorder, cookieName, state, 600); err != nil { // 10-minute TTL
+	if err := ch.SetCookie(recorder, cookieName, cookieValue, 600); err != nil { // 10-minute TTL
 		return "", nil, fmt.Errorf("lti/login: failed to set state cookie: %w", err)
 	}
 	recorder.Flush()
@@ -153,15 +173,18 @@ func HandleLogin(ctx context.Context, cfg Config, r *http.Request) (redirectURL 
 }
 
 // validateTargetLinkURI checks the unsigned target_link_uri parameter: it must
-// parse as an absolute http(s) URL and, when allowedHosts is non-empty, its
-// host must be in the list.
-func validateTargetLinkURI(targetLinkURI string, allowedHosts []string) error {
+// parse as an absolute http(s) URL (or https-only when requireHTTPS is set)
+// and, when allowedHosts is non-empty, its host must be in the list.
+func validateTargetLinkURI(targetLinkURI string, allowedHosts []string, requireHTTPS bool) error {
 	u, err := url.Parse(targetLinkURI)
 	if err != nil {
 		return fmt.Errorf("lti/login: invalid target_link_uri: %w", err)
 	}
 	if u.Scheme != "https" && u.Scheme != "http" {
 		return fmt.Errorf("lti/login: target_link_uri must be an absolute http(s) URL")
+	}
+	if requireHTTPS && u.Scheme != "https" {
+		return fmt.Errorf("lti/login: target_link_uri must use https")
 	}
 	if u.Host == "" {
 		return fmt.Errorf("lti/login: target_link_uri is missing a host")

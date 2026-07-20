@@ -75,6 +75,9 @@ func (ks *KeySet) PublicJWKS() ([]byte, error) {
 		if priv == nil {
 			return nil, fmt.Errorf("jwks: no private key configured for kid %q", kid)
 		}
+		if priv.N.BitLen() < 2048 {
+			return nil, fmt.Errorf("jwks: key %q is %d bits, want at least 2048", kid, priv.N.BitLen())
+		}
 		pub := &priv.PublicKey
 		jwk := publicJWK{
 			KTY: "RSA",

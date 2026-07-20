@@ -1,6 +1,7 @@
 package jwks_test
 
 import (
+	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
 	"testing"
@@ -128,5 +129,18 @@ func TestPublicJWKS_NoPrivateKeyMaterial(t *testing.T) {
 				t.Errorf("private key field %q must not appear in JWKS output", priv)
 			}
 		}
+	}
+}
+
+// LTI's RS256 key profile requires at least 2048-bit RSA keys. Serving a weak
+// key advertises a configuration the rest of the SDK promises not to support.
+func TestPublicJWKS_RejectsRSAKeysBelow2048Bits(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatalf("generate weak test key: %v", err)
+	}
+	ks := jwks.NewKeySet(map[string]*rsa.PrivateKey{"weak-key": key})
+	if _, err := ks.PublicJWKS(); err == nil {
+		t.Error("expected a sub-2048-bit RSA key to be rejected")
 	}
 }

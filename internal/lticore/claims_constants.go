@@ -97,3 +97,22 @@ const (
 	PresentationTargetWindow = "window"
 	PresentationTargetEmbed  = "embed"
 )
+
+// launch_presentation.document_target vocabulary (Core §5.4). Distinct from
+// the DL 2.0 accept_presentation_document_targets vocabulary above, which
+// additionally allows "embed" and does not allow "frame".
+const (
+	DocumentTargetFrame  = "frame"
+	DocumentTargetIframe = "iframe"
+	DocumentTargetWindow = "window"
+)
+
+// Recognized LTI/LIS vocabulary namespaces (Core Appendix A). A roles claim
+// entry, or a context.type entry, under one of the relevant prefixes below
+// counts as a "standard" value for the Core spec's vocabulary requirements.
+const (
+	RoleVocabPrefixLIS = "http://purl.imsglobal.org/vocab/lis/v2/"
+	RoleVocabPrefixLTI = "http://purl.imsglobal.org/vocab/lti/"
+
+	ContextTypeVocabPrefix = "http://purl.imsglobal.org/vocab/lis/v2/course#"
+)

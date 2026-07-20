@@ -21,7 +21,7 @@ func TestScore_ZeroScoreGiven_IsSerialized(t *testing.T) {
 		ScoreMaximum:     ags.Float64(100),
 		ActivityProgress: ags.ActivityProgressCompleted,
 		GradingProgress:  ags.GradingProgressFullyGraded,
-		Timestamp:        "2026-01-01T00:00:00Z",
+		Timestamp:        "2026-01-01T00:00:00.123Z",
 	}
 	data, err := json.Marshal(s)
 	if err != nil {
@@ -50,7 +50,7 @@ func TestAGS_SubmitScore_ScoreGivenWithoutMaximum_Rejected(t *testing.T) {
 		ScoreGiven:       ags.Float64(50),
 		ActivityProgress: ags.ActivityProgressCompleted,
 		GradingProgress:  ags.GradingProgressFullyGraded,
-		Timestamp:        "2026-01-01T00:00:00Z",
+		Timestamp:        "2026-01-01T00:00:00.123Z",
 	})
 	if err == nil {
 		t.Error("expected error for scoreGiven without scoreMaximum")
@@ -136,7 +136,7 @@ func TestAGS_SubmitScore_Success204(t *testing.T) {
 		UserID:           "user-42",
 		ActivityProgress: ags.ActivityProgressCompleted,
 		GradingProgress:  ags.GradingProgressFullyGraded,
-		Timestamp:        "2026-01-01T00:00:00Z",
+		Timestamp:        "2026-01-01T00:00:00.123Z",
 	})
 	if err != nil {
 		t.Errorf("expected success for 204 response, got %v", err)
@@ -155,7 +155,7 @@ func TestAGS_SubmitScore_RequiredFields(t *testing.T) {
 			UserID:           "user-42",
 			ActivityProgress: ags.ActivityProgressCompleted,
 			GradingProgress:  ags.GradingProgressFullyGraded,
-			Timestamp:        "2026-01-01T00:00:00Z",
+			Timestamp:        "2026-01-01T00:00:00.123Z",
 		}
 	}
 	cases := map[string]func(*ags.Score){

@@ -146,6 +146,12 @@ func (c *Connector) GetAccessToken(ctx context.Context, scopes []string) (string
 	if err := json.Unmarshal(body, &tr); err != nil {
 		return "", fmt.Errorf("connector: failed to parse token response: %w", err)
 	}
+	if tr.AccessToken == "" {
+		return "", fmt.Errorf("connector: token response missing access_token")
+	}
+	if !strings.EqualFold(tr.TokenType, "bearer") {
+		return "", fmt.Errorf("connector: token response has unsupported token_type %q, want Bearer", tr.TokenType)
+	}
 
 	expiresIn := tr.ExpiresIn
 	if expiresIn <= 0 {

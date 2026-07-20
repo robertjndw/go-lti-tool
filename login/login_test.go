@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	lti "github.com/robertjndw/go-lti-tool"
+	lticore "github.com/robertjndw/go-lti-tool/internal/lticore"
 	"github.com/robertjndw/go-lti-tool/internal/ltitest"
 	"github.com/robertjndw/go-lti-tool/login"
 )
@@ -293,7 +294,7 @@ func TestLogin_SetsCookieWithStateName(t *testing.T) {
 
 	found := false
 	for _, c := range cookies {
-		if c.Name == expectedCookieName && c.Value == state {
+		if c.Name == expectedCookieName && lticore.DecodeStateCookie(c.Value).State == state {
 			found = true
 			break
 		}
@@ -303,7 +304,7 @@ func TestLogin_SetsCookieWithStateName(t *testing.T) {
 		for _, c := range cookies {
 			names = append(names, c.Name+"="+c.Value)
 		}
-		t.Errorf("expected cookie %q=%q; got cookies: %v", expectedCookieName, state, names)
+		t.Errorf("expected cookie %q binding state %q; got cookies: %v", expectedCookieName, state, names)
 	}
 }
 

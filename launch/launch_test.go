@@ -714,8 +714,10 @@ func TestLaunch_Handler_DeletesStateCookieOnSuccess(t *testing.T) {
 	}
 }
 
-// Handler must return 400 and not call next on validation failure.
-func TestLaunch_Handler_Returns400OnError(t *testing.T) {
+// Handler must return an error status and not call next on validation failure.
+// A missing state cookie is an authentication failure (401), per the Security
+// Framework status-class mapping asserted in TestLaunch_HandlerSecurityStatusClasses.
+func TestLaunch_Handler_ReturnsErrorStatusOnError(t *testing.T) {
 	f := newFixture(t)
 	called := false
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -727,8 +729,8 @@ func TestLaunch_Handler_Returns400OnError(t *testing.T) {
 	w := httptest.NewRecorder()
 	launch.Handler(f.cfg(), next).ServeHTTP(w, req)
 
-	if w.Code != 400 {
-		t.Errorf("expected 400, got %d", w.Code)
+	if w.Code != 401 {
+		t.Errorf("expected 401, got %d", w.Code)
 	}
 	if called {
 		t.Error("next must not be called on validation failure")

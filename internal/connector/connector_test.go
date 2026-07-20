@@ -17,11 +17,17 @@ import (
 	"github.com/robertjndw/go-lti-tool/internal/ltitest"
 )
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
 // tokenServerConfig controls what the mock token endpoint returns.
 type tokenServerConfig struct {
 	status      int
 	accessToken string
 	expiresIn   int
+	scope       string
+	omitScope   bool
 	// capturedRequests holds the raw request bodies for inspection.
 	capturedRequests []string
 }
@@ -42,6 +48,14 @@ func newTokenServer(t *testing.T, cfg *tokenServerConfig) *httptest.Server {
 			"access_token": cfg.accessToken,
 			"token_type":   "Bearer",
 			"expires_in":   cfg.expiresIn,
+		}
+		if !cfg.omitScope {
+			grantedScope := cfg.scope
+			if grantedScope == "" {
+				values, _ := url.ParseQuery(string(body))
+				grantedScope = values.Get("scope")
+			}
+			resp["scope"] = grantedScope
 		}
 		json.NewEncoder(w).Encode(resp) //nolint:errcheck
 	}))
@@ -120,6 +134,70 @@ func TestConnector_TokenRequest_IncludesRequestedScopes(t *testing.T) {
 	}
 }
 
+// LTI service traffic is covered by the Security Framework's TLS requirement.
+// An insecure token endpoint must be rejected before any credential-bearing
+// request is transmitted.
+func TestConnector_DefaultRejectsInsecureTokenEndpointBeforeNetwork(t *testing.T) {
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+			"access_token": "must-not-be-used",
+			"token_type":   "Bearer",
+			"expires_in":   3600,
+			"scope":        lti.ScopeAGSScore,
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	conn := connector.New(newReg(t, srv.URL))
+	if _, err := conn.GetAccessToken(context.Background(), []string{lti.ScopeAGSScore}); err == nil {
+		t.Error("expected insecure OAuth token endpoint to be rejected")
+	}
+	if requests != 0 {
+		t.Errorf("credentials were sent to an insecure token endpoint (%d requests)", requests)
+	}
+}
+
+func TestConnector_RejectsInsecureServiceEndpointBeforeNetwork(t *testing.T) {
+	serviceRequests := 0
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		body := `{"access_token":"token-value","token_type":"Bearer","expires_in":3600,"scope":"` + lti.ScopeAGSScore + `"}`
+		if r.URL.Path == "/token" {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": {"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(body)),
+				Request:    r,
+			}, nil
+		}
+		serviceRequests++
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`[]`)),
+			Request:    r,
+		}, nil
+	})}
+
+	reg := newReg(t, "https://platform.example.com/token")
+	reg.AuthServer = "https://platform.example.com/token"
+	conn := connector.New(reg, connector.WithHTTPClient(client))
+	if _, err := conn.Request(
+		context.Background(),
+		http.MethodGet,
+		"http://platform.example.com/lineitems",
+		nil,
+		[]string{lti.ScopeAGSScore},
+	); err == nil {
+		t.Error("expected insecure LTI service endpoint to be rejected")
+	}
+	if serviceRequests != 0 {
+		t.Errorf("bearer token was sent to an insecure service endpoint (%d requests)", serviceRequests)
+	}
+}
+
 // Spec RFC 7523 §3: The client_assertion JWT must have iss=client_id and sub=client_id.
 func TestConnector_ClientAssertion_IssAndSubAreClientID(t *testing.T) {
 	cfg := &tokenServerConfig{accessToken: "tok-claims", expiresIn: 3600}
@@ -186,6 +264,28 @@ func TestConnector_ClientAssertion_SignedWithRS256(t *testing.T) {
 	}
 }
 
+// RFC 7523 client assertions require temporal bounds and a unique identifier
+// so authorization servers can reject expired assertions and replay attempts.
+func TestConnector_ClientAssertion_HasIATEXPAndJTI(t *testing.T) {
+	cfg := &tokenServerConfig{accessToken: "tok-standard-claims", expiresIn: 3600}
+	srv := newTokenServer(t, cfg)
+	conn := connector.New(newReg(t, srv.URL), connector.WithHTTPClient(srv.Client()))
+
+	if _, err := conn.GetAccessToken(context.Background(), []string{lti.ScopeAGSScore}); err != nil {
+		t.Fatalf("GetAccessToken failed: %v", err)
+	}
+	claims := parseAssertionClaims(t, extractAssertion(t, cfg.capturedRequests[0]))
+	iat, iatOK := claims["iat"].(float64)
+	exp, expOK := claims["exp"].(float64)
+	jti, jtiOK := claims["jti"].(string)
+	if !iatOK || !expOK || exp <= iat {
+		t.Errorf("invalid assertion time bounds: iat=%v exp=%v", claims["iat"], claims["exp"])
+	}
+	if !jtiOK || jti == "" {
+		t.Errorf("missing assertion jti: %v", claims["jti"])
+	}
+}
+
 // ── Token caching ─────────────────────────────────────────────────────────────
 
 // Tokens must be cached and reused until expiry.
@@ -220,11 +320,13 @@ func TestConnector_DifferentScopes_SeparateCacheEntries(t *testing.T) {
 	callCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
+		r.ParseForm() //nolint:errcheck
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"access_token": "tok-" + string(rune('a'+callCount)),
 			"token_type":   "Bearer",
 			"expires_in":   3600,
+			"scope":        r.Form.Get("scope"),
 		})
 	}))
 	t.Cleanup(srv.Close)
@@ -365,15 +467,15 @@ func TestConnector_TokenResponse_Non200_ReturnsError(t *testing.T) {
 	}
 }
 
-// When access_token is absent from the token response, the connector returns an
-// empty string without erroring. Service calls will subsequently fail with a
-// platform-side authentication error. Callers should validate the returned token.
-func TestConnector_TokenResponse_MissingAccessToken_ReturnsEmpty(t *testing.T) {
+// OAuth 2.0 requires access_token in a successful token response. Accepting an
+// empty token defers a clear protocol error into a misleading service failure.
+func TestConnector_TokenResponse_MissingAccessToken_ReturnsError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"token_type": "Bearer",
 			"expires_in": 3600,
+			"scope":      lti.ScopeAGSScore,
 			// access_token intentionally omitted
 		})
 	}))
@@ -382,14 +484,74 @@ func TestConnector_TokenResponse_MissingAccessToken_ReturnsEmpty(t *testing.T) {
 	reg := newReg(t, srv.URL)
 	conn := connector.New(reg)
 
-	token, err := conn.GetAccessToken(context.Background(), []string{lti.ScopeAGSScore})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if _, err := conn.GetAccessToken(context.Background(), []string{lti.ScopeAGSScore}); err == nil {
+		t.Error("expected error for successful response without access_token")
 	}
-	// Document current behavior: empty string is returned, not an error.
-	if token != "" {
-		t.Errorf("expected empty token for missing access_token field, got %q", token)
+}
+
+// OAuth 2.0 also requires token_type; LTI service clients only support Bearer.
+func TestConnector_TokenResponse_RequiresBearerTokenType(t *testing.T) {
+	for _, tokenType := range []string{"", "MAC"} {
+		t.Run(tokenType, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
+					"access_token": "token-value",
+					"token_type":   tokenType,
+					"expires_in":   3600,
+					"scope":        lti.ScopeAGSScore,
+				})
+			}))
+			t.Cleanup(srv.Close)
+
+			reg := newReg(t, srv.URL)
+			conn := connector.New(reg)
+			if _, err := conn.GetAccessToken(context.Background(), []string{lti.ScopeAGSScore}); err == nil {
+				t.Errorf("expected token_type %q to be rejected", tokenType)
+			}
+		})
 	}
+}
+
+// The Security Framework requires a successful token response to confirm the
+// granted scopes. GetAccessToken cannot satisfy its contract if the response
+// omits that confirmation or does not grant every scope requested by its caller.
+func TestConnector_TokenResponseConfirmsRequestedScopes(t *testing.T) {
+	requested := []string{lti.ScopeAGSScore, lti.ScopeAGSLineitem}
+	tests := map[string]*tokenServerConfig{
+		"missing scope field": {
+			accessToken: "token-value", expiresIn: 3600, omitScope: true,
+		},
+		"requested scope omitted": {
+			accessToken: "token-value", expiresIn: 3600, scope: lti.ScopeAGSScore,
+		},
+		"unrequested scope granted": {
+			accessToken: "token-value", expiresIn: 3600,
+			scope: lti.ScopeAGSScore + " https://vendor.example.com/unrequested",
+		},
+	}
+
+	for name, cfg := range tests {
+		t.Run(name, func(t *testing.T) {
+			srv := newTokenServer(t, cfg)
+			conn := connector.New(newReg(t, srv.URL), connector.WithHTTPClient(srv.Client()))
+			if _, err := conn.GetAccessToken(context.Background(), requested); err == nil {
+				t.Errorf("expected invalid granted scope %q to be rejected", cfg.scope)
+			}
+		})
+	}
+
+	t.Run("same scopes in different order", func(t *testing.T) {
+		cfg := &tokenServerConfig{
+			accessToken: "token-value", expiresIn: 3600,
+			scope: lti.ScopeAGSLineitem + " " + lti.ScopeAGSScore,
+		}
+		srv := newTokenServer(t, cfg)
+		conn := connector.New(newReg(t, srv.URL), connector.WithHTTPClient(srv.Client()))
+		if _, err := conn.GetAccessToken(context.Background(), requested); err != nil {
+			t.Errorf("same granted scope set in a different order must be accepted: %v", err)
+		}
+	})
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

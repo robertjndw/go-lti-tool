@@ -19,11 +19,13 @@ import (
 func newTokenServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm() //nolint:errcheck
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{ //nolint:errcheck
 			"access_token": "test-access-token",
 			"token_type":   "Bearer",
 			"expires_in":   3600,
+			"scope":        r.Form.Get("scope"),
 		})
 	}))
 	t.Cleanup(srv.Close)

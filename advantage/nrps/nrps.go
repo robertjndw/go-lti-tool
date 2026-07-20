@@ -158,6 +158,12 @@ func (s *Service) GetMembershipsFrom(ctx context.Context, startURL string) (*Mem
 			result.ID = page.ID
 			result.Context = page.Context
 		}
+		for i := range page.Members {
+			// NRPS 2.0: an absent status means Active.
+			if page.Members[i].Status == "" {
+				page.Members[i].Status = MemberStatusActive
+			}
+		}
 		result.Members = append(result.Members, page.Members...)
 		if diff := resp.LinkURL("differences"); diff != "" {
 			result.DifferencesURL = diff

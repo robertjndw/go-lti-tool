@@ -151,6 +151,17 @@ func TestDeepLinkValidator_MissingSub_Allowed(t *testing.T) {
 	}
 }
 
+// DL 2.0 defines roles as optional on LtiDeepLinkingRequest even though Core
+// requires it on LtiResourceLinkRequest.
+func TestDeepLinkValidator_MissingRoles_Allowed(t *testing.T) {
+	v := launch.DeepLinkMessageValidator{}
+	c := minimalDeepLinkClaims()
+	c.Roles = nil
+	if err := v.Validate(c); err != nil {
+		t.Errorf("deep-link launch without roles must be allowed, got %v", err)
+	}
+}
+
 // Spec: version must be "1.3.0".
 func TestDeepLinkValidator_WrongVersion_Fails(t *testing.T) {
 	v := launch.DeepLinkMessageValidator{}
@@ -171,13 +182,22 @@ func TestDeepLinkValidator_MissingSettings_Fails(t *testing.T) {
 	}
 }
 
-// Spec: deep_link_return_url must be non-empty.
-func TestDeepLinkValidator_EmptyReturnURL_Fails(t *testing.T) {
-	v := launch.DeepLinkMessageValidator{}
-	c := minimalDeepLinkClaims()
-	c.DeepLinkingSettings.DeepLinkReturnURL = ""
-	if err := v.Validate(c); err == nil {
-		t.Error("expected error for empty deep_link_return_url")
+// DL 2.0 requires deep_link_return_url to be a fully-qualified HTTPS URL.
+func TestDeepLinkValidator_InvalidReturnURL_Fails(t *testing.T) {
+	for name, returnURL := range map[string]string{
+		"empty":        "",
+		"relative":     "/deep-links/return",
+		"missing host": "https:///deep-links/return",
+		"non-HTTPS":    "http://platform.example.com/deep-links/return",
+	} {
+		t.Run(name, func(t *testing.T) {
+			v := launch.DeepLinkMessageValidator{}
+			c := minimalDeepLinkClaims()
+			c.DeepLinkingSettings.DeepLinkReturnURL = returnURL
+			if err := v.Validate(c); err == nil {
+				t.Errorf("expected invalid deep_link_return_url %q to be rejected", returnURL)
+			}
+		})
 	}
 }
 
@@ -191,13 +211,33 @@ func TestDeepLinkValidator_EmptyAcceptTypes_Fails(t *testing.T) {
 	}
 }
 
-// Spec: accept_presentation_document_targets must be non-empty.
-func TestDeepLinkValidator_EmptyDocumentTargets_Fails(t *testing.T) {
+// Spec: accept_presentation_document_targets is required.
+func TestDeepLinkValidator_MissingDocumentTargets_Fails(t *testing.T) {
 	v := launch.DeepLinkMessageValidator{}
 	c := minimalDeepLinkClaims()
 	c.DeepLinkingSettings.AcceptPresentationDocumentTargets = nil
 	if err := v.Validate(c); err == nil {
-		t.Error("expected error for empty accept_presentation_document_targets")
+		t.Error("expected error for missing accept_presentation_document_targets")
+	}
+}
+
+// DL 2.0 explicitly maps a platform accepting no presentation target to an
+// empty array. Required does not mean minItems=1.
+func TestDeepLinkValidator_EmptyDocumentTargets_Allowed(t *testing.T) {
+	v := launch.DeepLinkMessageValidator{}
+	c := minimalDeepLinkClaims()
+	c.DeepLinkingSettings.AcceptPresentationDocumentTargets = []string{}
+	if err := v.Validate(c); err != nil {
+		t.Errorf("empty accept_presentation_document_targets must be allowed, got %v", err)
+	}
+}
+
+func TestDeepLinkValidator_UnknownDocumentTarget_Fails(t *testing.T) {
+	v := launch.DeepLinkMessageValidator{}
+	c := minimalDeepLinkClaims()
+	c.DeepLinkingSettings.AcceptPresentationDocumentTargets = []string{"popup"}
+	if err := v.Validate(c); err == nil {
+		t.Error("expected an unknown presentation document target to be rejected")
 	}
 }
 

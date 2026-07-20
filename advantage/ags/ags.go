@@ -177,6 +177,9 @@ func (s *Service) CreateLineitem(ctx context.Context, li Lineitem) (*Lineitem, e
 	if s.endpoint.Lineitems == "" {
 		return nil, fmt.Errorf("ags: lineitems URL is not available in this launch")
 	}
+	if err := validateLineitem(li); err != nil {
+		return nil, err
+	}
 	body, err := json.Marshal(li)
 	if err != nil {
 		return nil, fmt.Errorf("ags: failed to marshal lineitem: %w", err)
@@ -203,6 +206,9 @@ func (s *Service) CreateLineitem(ctx context.Context, li Lineitem) (*Lineitem, e
 func (s *Service) UpdateLineitem(ctx context.Context, li Lineitem) (*Lineitem, error) {
 	if li.ID == "" {
 		return nil, fmt.Errorf("ags: lineitem ID is required for update")
+	}
+	if err := validateLineitem(li); err != nil {
+		return nil, err
 	}
 	body, err := json.Marshal(li)
 	if err != nil {
@@ -289,23 +295,8 @@ func (s *Service) FindOrCreateLineitem(ctx context.Context, li Lineitem) (*Linei
 
 // SubmitScore posts a Score to the platform for the given line item URL.
 func (s *Service) SubmitScore(ctx context.Context, lineitemURL string, score Score) error {
-	if score.UserID == "" {
-		return fmt.Errorf("ags: SubmitScore: UserID is required")
-	}
-	if score.ActivityProgress == "" || score.GradingProgress == "" {
-		return fmt.Errorf("ags: SubmitScore: ActivityProgress and GradingProgress are required")
-	}
-	if score.Timestamp == "" {
-		return fmt.Errorf("ags: SubmitScore: Timestamp is required (ISO 8601)")
-	}
-	// AGS spec: scoreMaximum is required whenever scoreGiven is present.
-	if score.ScoreGiven != nil {
-		if score.ScoreMaximum == nil {
-			return fmt.Errorf("ags: SubmitScore: ScoreMaximum is required when ScoreGiven is set")
-		}
-		if *score.ScoreMaximum <= 0 {
-			return fmt.Errorf("ags: SubmitScore: ScoreMaximum must be a positive number")
-		}
+	if err := validateScore(score); err != nil {
+		return err
 	}
 	// Scores are posted to <lineitem_url>/scores. Use appendPathSegment so that
 	// query parameters (e.g. ?type_id=8 from Moodle) are preserved correctly.
@@ -332,11 +323,46 @@ func (s *Service) SubmitScore(ctx context.Context, lineitemURL string, score Sco
 	return nil
 }
 
-// GetResults returns all results for the given line item URL.
-func (s *Service) GetResults(ctx context.Context, lineitemURL string) ([]Result, error) {
+// ResultsQuery holds the filter parameters defined by the AGS spec for the
+// results container endpoint. Zero-value fields are omitted.
+type ResultsQuery struct {
+	// UserID restricts results to the given platform user.
+	UserID string
+	// Limit restricts the page size (the platform may return fewer; pagination
+	// is still followed to fetch all matching items).
+	Limit int
+}
+
+// apply appends the query parameters to rawURL.
+func (q ResultsQuery) apply(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+	params := u.Query()
+	if q.UserID != "" {
+		params.Set("user_id", q.UserID)
+	}
+	if q.Limit > 0 {
+		params.Set("limit", strconv.Itoa(q.Limit))
+	}
+	u.RawQuery = params.Encode()
+	return u.String(), nil
+}
+
+// GetResults returns results for the given line item URL, following
+// pagination automatically. An optional ResultsQuery filters server-side by
+// user_id and limit (AGS spec query parameters).
+func (s *Service) GetResults(ctx context.Context, lineitemURL string, query ...ResultsQuery) ([]Result, error) {
 	resultsURL, err := appendPathSegment(lineitemURL, "results")
 	if err != nil {
 		return nil, fmt.Errorf("ags: invalid lineitem URL: %w", err)
+	}
+	if len(query) > 0 {
+		resultsURL, err = query[0].apply(resultsURL)
+		if err != nil {
+			return nil, fmt.Errorf("ags: invalid results URL: %w", err)
+		}
 	}
 
 	var all []Result

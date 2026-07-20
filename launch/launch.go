@@ -11,6 +11,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -114,7 +115,7 @@ func Handler(cfg Config, next http.Handler) http.Handler {
 		ld, err := ValidateLaunch(r.Context(), cfg, r)
 		if err != nil {
 			log.Printf("lti/launch: %v", err)
-			http.Error(w, "launch failed", http.StatusBadRequest)
+			http.Error(w, "launch failed", statusForError(err))
 			return
 		}
 		// Delete the state cookie — it is one-time use. The nonce prevents JWT
@@ -125,6 +126,30 @@ func Handler(cfg Config, next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), contextKey{}, ld)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// statusForError maps a ValidateLaunch error to an HTTP status code. The
+// 1EdTech Security Framework distinguishes authentication failures (invalid
+// state/signature/nonce/expired token, untrusted audience, a platform-reported
+// OIDC error) from authorization failures against a known platform (unknown
+// registration/deployment); everything else is a malformed request.
+func statusForError(err error) int {
+	var platformErr *lticore.PlatformError
+	switch {
+	case errors.As(err, &platformErr):
+		return http.StatusUnauthorized
+	case errors.Is(err, lticore.ErrRegistrationNotFound), errors.Is(err, lticore.ErrDeploymentNotFound):
+		return http.StatusForbidden
+	case errors.Is(err, lticore.ErrInvalidState),
+		errors.Is(err, lticore.ErrInvalidSignature),
+		errors.Is(err, lticore.ErrExpiredJWT),
+		errors.Is(err, lticore.ErrInvalidNonce),
+		errors.Is(err, lticore.ErrInvalidClaims),
+		errors.Is(err, lticore.ErrMissingClaim):
+		return http.StatusUnauthorized
+	default:
+		return http.StatusBadRequest
+	}
 }
 
 // FromContext extracts the *Launch stored by Handler from a request context.
@@ -166,7 +191,8 @@ func ValidateLaunch(ctx context.Context, cfg Config, r *http.Request) (*lticore.
 	}
 
 	// Step 1: Validate the state cookie.
-	if err := validateState(r, state, cfg.cookieHandler()); err != nil {
+	stateData, err := validateState(r, state, cfg.cookieHandler())
+	if err != nil {
 		return nil, err
 	}
 
@@ -191,6 +217,20 @@ func ValidateLaunch(ctx context.Context, cfg Config, r *http.Request) (*lticore.
 	// Step 5: Validate standard OIDC claims.
 	if err := validateOIDCClaims(claims, reg, cfg); err != nil {
 		return nil, err
+	}
+
+	// Step 5b: bind the launch to its login-initiation transaction. A state
+	// cookie written by login.HandleLogin carries the nonce and
+	// target_link_uri issued alongside that state; require them to match so a
+	// nonce or target_link_uri from a different login cannot be combined with
+	// this state (1EdTech Security Framework transaction binding). Cookies
+	// that predate this binding (no bound nonce/target_link_uri) skip the
+	// corresponding check.
+	if stateData.Nonce != "" && subtle.ConstantTimeCompare([]byte(claims.Nonce), []byte(stateData.Nonce)) != 1 {
+		return nil, lticore.ErrInvalidNonce
+	}
+	if stateData.TargetLinkURI != "" && claims.TargetLinkURI != stateData.TargetLinkURI {
+		return nil, fmt.Errorf("%w: target_link_uri does not match the login initiation request", lticore.ErrInvalidClaims)
 	}
 
 	// Step 6: Validate the nonce.
@@ -236,20 +276,23 @@ func ValidateLaunch(ctx context.Context, cfg Config, r *http.Request) (*lticore.
 }
 
 // validateState checks that the state parameter matches the state cookie using
-// a constant-time comparison to prevent timing side-channel attacks.
-func validateState(r *http.Request, state string, ch lticore.CookieHandler) error {
+// a constant-time comparison to prevent timing side-channel attacks. It
+// returns the cookie's bound data (nonce/target_link_uri) for transaction
+// binding checks against the verified claims.
+func validateState(r *http.Request, state string, ch lticore.CookieHandler) (lticore.StateCookieData, error) {
 	if state == "" {
-		return lticore.ErrInvalidState
+		return lticore.StateCookieData{}, lticore.ErrInvalidState
 	}
 	cookieName := "lti1p3_" + state
 	cookieValue, err := ch.GetCookie(r, cookieName)
 	if err != nil {
-		return fmt.Errorf("lti/launch: %w: %w", lticore.ErrInvalidState, err)
+		return lticore.StateCookieData{}, fmt.Errorf("lti/launch: %w: %w", lticore.ErrInvalidState, err)
 	}
-	if subtle.ConstantTimeCompare([]byte(cookieValue), []byte(state)) != 1 {
-		return lticore.ErrInvalidState
+	data := lticore.DecodeStateCookie(cookieValue)
+	if subtle.ConstantTimeCompare([]byte(data.State), []byte(state)) != 1 {
+		return lticore.StateCookieData{}, lticore.ErrInvalidState
 	}
-	return nil
+	return data, nil
 }
 
 // rawJWTHeader holds the minimal fields we need from the JWT header.
@@ -497,6 +540,71 @@ func validateOIDCClaims(claims *lticore.LTIClaims, reg *lticore.Registration, cf
 	// never from the unsigned login initiation request.
 	if claims.TargetLinkURI == "" {
 		return fmt.Errorf("%w: target_link_uri is missing", lticore.ErrMissingClaim)
+	}
+	return validateCoreClaimSchema(claims)
+}
+
+// maxIdentifierLength is the Core spec's bound on sub, deployment_id,
+// resource_link.id, context.id, and tool_platform.guid: at most 255 ASCII characters.
+const maxIdentifierLength = 255
+
+// isStandardRole reports whether role is drawn from one of the Core Appendix A
+// role vocabularies (system, institution, and membership/context roles,
+// including their sub-role variants).
+func isStandardRole(role string) bool {
+	return strings.HasPrefix(role, lticore.RoleVocabPrefixLIS) || strings.HasPrefix(role, lticore.RoleVocabPrefixLTI)
+}
+
+// isStandardContextType reports whether t is drawn from the Core Appendix A.1
+// context type vocabulary.
+func isStandardContextType(t string) bool {
+	return strings.HasPrefix(t, lticore.ContextTypeVocabPrefix)
+}
+
+// validateCoreClaimSchema enforces Core 1.3 schema constraints on claims that
+// are only meaningful once the token is otherwise trusted: identifier length
+// bounds, required members of optional claim objects, and closed vocabularies.
+func validateCoreClaimSchema(claims *lticore.LTIClaims) error {
+	if len(claims.Subject) > maxIdentifierLength {
+		return fmt.Errorf("%w: sub exceeds %d characters", lticore.ErrInvalidClaims, maxIdentifierLength)
+	}
+	if len(claims.DeploymentID) > maxIdentifierLength {
+		return fmt.Errorf("%w: deployment_id exceeds %d characters", lticore.ErrInvalidClaims, maxIdentifierLength)
+	}
+	if claims.ResourceLink != nil && len(claims.ResourceLink.ID) > maxIdentifierLength {
+		return fmt.Errorf("%w: resource_link.id exceeds %d characters", lticore.ErrInvalidClaims, maxIdentifierLength)
+	}
+	if claims.Context != nil {
+		if claims.Context.ID == "" {
+			return fmt.Errorf("%w: context.id is required when context is present", lticore.ErrInvalidClaims)
+		}
+		if len(claims.Context.ID) > maxIdentifierLength {
+			return fmt.Errorf("%w: context.id exceeds %d characters", lticore.ErrInvalidClaims, maxIdentifierLength)
+		}
+		if len(claims.Context.Type) > 0 && !slices.ContainsFunc(claims.Context.Type, isStandardContextType) {
+			return fmt.Errorf("%w: context.type does not include a recognized context type", lticore.ErrInvalidClaims)
+		}
+	}
+	if claims.ToolPlatform != nil {
+		if claims.ToolPlatform.GUID == "" {
+			return fmt.Errorf("%w: tool_platform.guid is required when tool_platform is present", lticore.ErrInvalidClaims)
+		}
+		if len(claims.ToolPlatform.GUID) > maxIdentifierLength {
+			return fmt.Errorf("%w: tool_platform.guid exceeds %d characters", lticore.ErrInvalidClaims, maxIdentifierLength)
+		}
+	}
+	if len(claims.Roles) > 0 && !slices.ContainsFunc(claims.Roles, isStandardRole) {
+		return fmt.Errorf("%w: roles does not include a role from the standard vocabularies", lticore.ErrInvalidClaims)
+	}
+	if len(claims.RoleScopeMentor) > 0 && !slices.Contains(claims.Roles, lticore.RoleMentor) {
+		return fmt.Errorf("%w: role_scope_mentor requires the Mentor role in roles", lticore.ErrInvalidClaims)
+	}
+	if claims.LaunchPresentation != nil && claims.LaunchPresentation.DocumentTarget != "" {
+		switch claims.LaunchPresentation.DocumentTarget {
+		case lticore.DocumentTargetFrame, lticore.DocumentTargetIframe, lticore.DocumentTargetWindow:
+		default:
+			return fmt.Errorf("%w: launch_presentation.document_target must be frame, iframe, or window", lticore.ErrInvalidClaims)
+		}
 	}
 	return nil
 }

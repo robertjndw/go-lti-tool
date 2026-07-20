@@ -45,6 +45,31 @@ func parseISO8601(s string) error {
 	return err
 }
 
+// lineitemDatePattern matches an ISO 8601 datetime with a REQUIRED timezone
+// designator but an OPTIONAL fractional-seconds component. LineItem
+// startDateTime/endDateTime (§3.2) are a different property than Score
+// timestamp/submission (§3.4.9): the spec's own example
+// ("2018-03-06T20:05:02Z") carries no fractional seconds, so one is not
+// required here.
+var lineitemDatePattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}(:?\d{2})?)$`)
+
+// parseLineitemDate validates s as a LineItem startDateTime/endDateTime value.
+func parseLineitemDate(s string) error {
+	if !lineitemDatePattern.MatchString(s) {
+		return fmt.Errorf("ags: %q is not a valid ISO 8601 datetime with a timezone", s)
+	}
+	normalized := s
+	if !strings.HasSuffix(s, "Z") {
+		if idx := strings.LastIndexAny(s, "+-"); idx > 0 && len(s)-idx == 3 {
+			normalized = s + ":00"
+		}
+	}
+	if _, err := time.Parse(time.RFC3339Nano, normalized); err != nil {
+		return fmt.Errorf("ags: %q is not a valid ISO 8601 datetime: %w", s, err)
+	}
+	return nil
+}
+
 // validActivityProgress and validGradingProgress are the AGS spec's closed
 // vocabularies for Score.ActivityProgress and Score.GradingProgress.
 var (
@@ -123,6 +148,16 @@ func validateLineitem(li Lineitem) error {
 	}
 	if li.ScoreMaximum <= 0 {
 		return fmt.Errorf("ags: Lineitem.ScoreMaximum must be a positive number")
+	}
+	if li.StartDateTime != "" {
+		if err := parseLineitemDate(li.StartDateTime); err != nil {
+			return fmt.Errorf("ags: Lineitem.StartDateTime: %w", err)
+		}
+	}
+	if li.EndDateTime != "" {
+		if err := parseLineitemDate(li.EndDateTime); err != nil {
+			return fmt.Errorf("ags: Lineitem.EndDateTime: %w", err)
+		}
 	}
 	return nil
 }

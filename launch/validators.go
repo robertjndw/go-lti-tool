@@ -79,14 +79,18 @@ func (DeepLinkMessageValidator) Validate(claims *lticore.LTIClaims) error {
 	if err := validateVersion(lticore.MessageTypeDeepLinking, claims); err != nil {
 		return err
 	}
-	if claims.Roles == nil {
-		return fmt.Errorf("lti: %s missing 'roles' claim", lticore.MessageTypeDeepLinking)
-	}
+	// DL 2.0 defines roles as optional on LtiDeepLinkingRequest, unlike Core's
+	// requirement for LtiResourceLinkRequest.
 	if claims.DeepLinkingSettings == nil {
 		return fmt.Errorf("lti: %s missing deep_linking_settings claim", lticore.MessageTypeDeepLinking)
 	}
 	if claims.DeepLinkingSettings.DeepLinkReturnURL == "" {
 		return fmt.Errorf("lti: %s deep_link_return_url is empty", lticore.MessageTypeDeepLinking)
+	}
+	// 1EdTech Security Framework §3 requires TLS for LTI message URLs; the
+	// tool's response is later POSTed directly to this URL.
+	if !isFullyQualifiedHTTPSURL(claims.DeepLinkingSettings.DeepLinkReturnURL) {
+		return fmt.Errorf("lti: %s deep_link_return_url must be a fully-qualified https URL", lticore.MessageTypeDeepLinking)
 	}
 	if len(claims.DeepLinkingSettings.AcceptTypes) == 0 {
 		return fmt.Errorf("lti: %s accept_types is empty", lticore.MessageTypeDeepLinking)
@@ -97,6 +101,13 @@ func (DeepLinkMessageValidator) Validate(claims *lticore.LTIClaims) error {
 	// platform accepting no presentation target — is a valid present value.
 	if claims.DeepLinkingSettings.AcceptPresentationDocumentTargets == nil {
 		return fmt.Errorf("lti: %s missing accept_presentation_document_targets", lticore.MessageTypeDeepLinking)
+	}
+	for _, target := range claims.DeepLinkingSettings.AcceptPresentationDocumentTargets {
+		switch target {
+		case lticore.PresentationTargetEmbed, lticore.PresentationTargetIframe, lticore.PresentationTargetWindow:
+		default:
+			return fmt.Errorf("lti: %s accept_presentation_document_targets contains unrecognized target %q", lticore.MessageTypeDeepLinking, target)
+		}
 	}
 	return nil
 }

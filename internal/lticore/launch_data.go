@@ -1,5 +1,10 @@
 package lticore
 
+import "slices"
+
+// NRPSServiceVersion is the NRPS specification version this client speaks.
+const NRPSServiceVersion = "2.0"
+
 // Launch is the validated, trusted payload produced after a successful launch.
 type Launch struct {
 	// LaunchID is a unique identifier for this launch, used to retrieve it from the store.
@@ -20,9 +25,11 @@ func (ld *Launch) HasAGS() bool {
 	return ld.Claims.AGS != nil && (ld.Claims.AGS.Lineitems != "" || ld.Claims.AGS.Lineitem != "")
 }
 
-// HasNRPS reports whether the launch includes an NRPS endpoint.
+// HasNRPS reports whether the launch includes an NRPS endpoint whose
+// advertised service_versions include the 2.0 version this client speaks.
 func (ld *Launch) HasNRPS() bool {
-	return ld.Claims.NRPS != nil && ld.Claims.NRPS.ContextMembershipsURL != ""
+	return ld.Claims.NRPS != nil && ld.Claims.NRPS.ContextMembershipsURL != "" &&
+		slices.Contains(ld.Claims.NRPS.ServiceVersions, NRPSServiceVersion)
 }
 
 // HasDeepLinking reports whether the launch is a deep linking request.

@@ -180,6 +180,13 @@ func isFullyQualifiedURL(s string) bool {
 	return err == nil && u.IsAbs() && u.Host != ""
 }
 
+// isFullyQualifiedHTTPSURL reports whether s is an absolute https URL with a
+// host, as required by deep_link_return_url (1EdTech Security Framework §3).
+func isFullyQualifiedHTTPSURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && u.Scheme == "https" && u.Host != ""
+}
+
 // validateResourceURLs enforces that URL-valued properties are fully
 // qualified URLs, not merely non-empty strings, and that custom/extension
 // content item types use a fully-qualified URL as their type identifier (DL
@@ -360,6 +367,11 @@ var formTmpl = template.Must(template.New("dl").Parse(`<!DOCTYPE html>
 // ResponseFormHTML builds an LtiDeepLinkingResponse JWT and wraps it in an
 // auto-submitting HTML form that POSTs it back to the platform.
 func (b *Builder) ResponseFormHTML(resources []Resource) (string, error) {
+	// The 1EdTech Security Framework §3 requires TLS for LTI message URLs, and
+	// this form POSTs directly to deep_link_return_url.
+	if !isFullyQualifiedHTTPSURL(b.settings.DeepLinkReturnURL) {
+		return "", fmt.Errorf("deeplink: deep_link_return_url %q must be a fully-qualified https URL", b.settings.DeepLinkReturnURL)
+	}
 	jwtStr, err := b.ResponseJWT(resources)
 	if err != nil {
 		return "", err

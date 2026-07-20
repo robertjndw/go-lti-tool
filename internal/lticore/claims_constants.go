@@ -107,12 +107,25 @@ const (
 	DocumentTargetWindow = "window"
 )
 
-// Recognized LTI/LIS vocabulary namespaces (Core Appendix A). A roles claim
-// entry, or a context.type entry, under one of the relevant prefixes below
-// counts as a "standard" value for the Core spec's vocabulary requirements.
-const (
-	RoleVocabPrefixLIS = "http://purl.imsglobal.org/vocab/lis/v2/"
-	RoleVocabPrefixLTI = "http://purl.imsglobal.org/vocab/lti/"
+// StandardRoles lists every role URI enumerated by Core Appendix A (system,
+// institution, and membership/context roles). A roles claim entry outside
+// this closed set — and outside the documented sub-role construction
+// (e.g. ".../membership/Instructor#TeachingAssistant") — is not a standard
+// role; a bare namespace prefix with a made-up fragment is not sufficient.
+var StandardRoles = []string{
+	RoleSystemAdministrator, RoleSystemNone, RoleSystemAccountAdmin, RoleSystemCreator, RoleSystemSysAdmin, RoleSystemSysSupport, RoleSystemUser,
+	RoleInstitutionAdministrator, RoleInstitutionFaculty, RoleInstitutionGuest, RoleInstitutionNone, RoleInstitutionOther, RoleInstitutionStaff, RoleInstitutionStudent, RoleInstitutionAlumni, RoleInstitutionInstructor, RoleInstitutionLearner, RoleInstitutionMember, RoleInstitutionMentor, RoleInstitutionObserver, RoleInstitutionProspectiveStudent,
+	RoleAdministrator, RoleContentDeveloper, RoleInstructor, RoleLearner, RoleMentor, RoleManager, RoleMember, RoleOfficer,
+}
 
-	ContextTypeVocabPrefix = "http://purl.imsglobal.org/vocab/lis/v2/course#"
-)
+// StandardContextTypes lists every context type URI enumerated by Core
+// Appendix A.1.
+var StandardContextTypes = []string{
+	ContextTypeCourseTemplate, ContextTypeCourseOffering, ContextTypeCourseSection, ContextTypeGroup,
+}
+
+// MembershipSubRolePrefix is the namespace under which Core Appendix A
+// documents an open-ended sub-role construction: a principal role segment
+// followed by a specific sub-role fragment, e.g.
+// "http://purl.imsglobal.org/vocab/lis/v2/membership/Instructor#TeachingAssistant".
+const MembershipSubRolePrefix = "http://purl.imsglobal.org/vocab/lis/v2/membership/"

@@ -133,6 +133,37 @@ func (s *Service) GetMemberships(ctx context.Context, query ...MembersQuery) (*M
 	return s.GetMembershipsFrom(ctx, startURL)
 }
 
+// validateMembershipsPage checks a decoded membership container page against
+// the NRPS 2.0 response schema's required properties, so a malformed
+// container is never exposed to callers as a valid (if sparse) roster.
+// A nil Members/Roles slice means the JSON key was absent (a schema
+// violation); an empty-but-present array is a valid value.
+func validateMembershipsPage(page membershipsResponse) error {
+	if page.ID == "" {
+		return fmt.Errorf("nrps: membership container missing 'id'")
+	}
+	if page.Context.ID == "" {
+		return fmt.Errorf("nrps: membership container missing 'context.id'")
+	}
+	if page.Members == nil {
+		return fmt.Errorf("nrps: membership container missing 'members'")
+	}
+	for i, m := range page.Members {
+		if m.UserID == "" {
+			return fmt.Errorf("nrps: member %d missing 'user_id'", i)
+		}
+		if m.Roles == nil {
+			return fmt.Errorf("nrps: member %d missing 'roles'", i)
+		}
+		switch m.Status {
+		case "", MemberStatusActive, MemberStatusInactive, MemberStatusDeleted:
+		default:
+			return fmt.Errorf("nrps: member %d has invalid status %q", i, m.Status)
+		}
+	}
+	return nil
+}
+
 // GetMembershipsFrom fetches memberships starting at the given URL — either a
 // (possibly filtered) container URL or a DifferencesURL from an earlier call.
 func (s *Service) GetMembershipsFrom(ctx context.Context, startURL string) (*Memberships, error) {
@@ -153,6 +184,9 @@ func (s *Service) GetMembershipsFrom(ctx context.Context, startURL string) (*Mem
 		var page membershipsResponse
 		if err := json.Unmarshal(resp.Body, &page); err != nil {
 			return nil, fmt.Errorf("nrps: failed to parse memberships response: %w", err)
+		}
+		if err := validateMembershipsPage(page); err != nil {
+			return nil, err
 		}
 		if result.ID == "" {
 			result.ID = page.ID

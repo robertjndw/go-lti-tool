@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -548,17 +550,28 @@ func validateOIDCClaims(claims *lticore.LTIClaims, reg *lticore.Registration, cf
 // resource_link.id, context.id, and tool_platform.guid: at most 255 ASCII characters.
 const maxIdentifierLength = 255
 
-// isStandardRole reports whether role is drawn from one of the Core Appendix A
-// role vocabularies (system, institution, and membership/context roles,
-// including their sub-role variants).
+// membershipSubRolePattern matches the Core Appendix A sub-role construction
+// documented under the membership namespace: a principal role segment
+// followed by a specific sub-role fragment (e.g.
+// ".../membership/Instructor#TeachingAssistant"). This is an open-ended,
+// documented pattern distinct from the closed base-role vocabulary
+// (lticore.StandardRoles), so it is recognized structurally instead of via
+// exhaustive enumeration. A bare "membership#SomeFragment" does NOT match:
+// that form belongs to the closed vocabulary and must be an exact match.
+var membershipSubRolePattern = regexp.MustCompile(`^` + regexp.QuoteMeta(lticore.MembershipSubRolePrefix) + `[^/#]+#[^/#]+$`)
+
+// isStandardRole reports whether role is drawn from the Core Appendix A role
+// vocabularies (system, institution, and membership/context roles) or the
+// documented sub-role construction. A namespace prefix alone with a made-up
+// fragment (e.g. ".../membership#NotARealRole") is not sufficient.
 func isStandardRole(role string) bool {
-	return strings.HasPrefix(role, lticore.RoleVocabPrefixLIS) || strings.HasPrefix(role, lticore.RoleVocabPrefixLTI)
+	return slices.Contains(lticore.StandardRoles, role) || membershipSubRolePattern.MatchString(role)
 }
 
-// isStandardContextType reports whether t is drawn from the Core Appendix A.1
-// context type vocabulary.
+// isStandardContextType reports whether t is one of the Core Appendix A.1
+// context type vocabulary's exact values.
 func isStandardContextType(t string) bool {
-	return strings.HasPrefix(t, lticore.ContextTypeVocabPrefix)
+	return slices.Contains(lticore.StandardContextTypes, t)
 }
 
 // validateCoreClaimSchema enforces Core 1.3 schema constraints on claims that
@@ -606,7 +619,18 @@ func validateCoreClaimSchema(claims *lticore.LTIClaims) error {
 			return fmt.Errorf("%w: launch_presentation.document_target must be frame, iframe, or window", lticore.ErrInvalidClaims)
 		}
 	}
+	// 1EdTech Security Framework §3 requires TLS for LTI message URLs;
+	// return_url is where the tool redirects the user back to the platform.
+	if claims.LaunchPresentation != nil && claims.LaunchPresentation.ReturnURL != "" && !isFullyQualifiedHTTPSURL(claims.LaunchPresentation.ReturnURL) {
+		return fmt.Errorf("%w: launch_presentation.return_url must be a fully-qualified https URL", lticore.ErrInvalidClaims)
+	}
 	return nil
+}
+
+// isFullyQualifiedHTTPSURL reports whether s is an absolute https URL with a host.
+func isFullyQualifiedHTTPSURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && u.Scheme == "https" && u.Host != ""
 }
 
 // runMessageValidators finds the appropriate validator for the message type and runs it.

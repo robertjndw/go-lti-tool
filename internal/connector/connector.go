@@ -13,9 +13,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -71,11 +73,63 @@ type tokenResponse struct {
 	AccessToken string `json:"access_token"`
 	TokenType   string `json:"token_type"`
 	ExpiresIn   int    `json:"expires_in"`
+	Scope       string `json:"scope"`
+}
+
+// isLoopbackHost reports whether hostport (a URL host, optionally with a
+// port) refers to a loopback address (127.0.0.1, ::1, localhost). The
+// Security Framework's TLS requirement targets real network traffic; a
+// same-machine test/dev endpoint is exempted for LTI service calls.
+func isLoopbackHost(hostport string) bool {
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// requireSecureServiceURL enforces the Security Framework §3 TLS requirement
+// on an LTI service call, exempting loopback hosts for local testing.
+func requireSecureServiceURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("connector: invalid service URL %q: %w", rawURL, err)
+	}
+	if u.Scheme == "https" || isLoopbackHost(u.Host) {
+		return nil
+	}
+	return fmt.Errorf("connector: insecure service URL %q: the 1EdTech Security Framework §3 requires TLS (loopback hosts are exempt for local testing)", rawURL)
+}
+
+// scopeSetEqual reports whether granted (a space-separated OAuth2 scope
+// list, RFC 6749 §3.3) contains exactly the requested scopes, regardless of
+// order. An empty/omitted granted scope never matches a non-empty request.
+func scopeSetEqual(granted string, requested []string) bool {
+	grantedScopes := strings.Fields(granted)
+	if len(grantedScopes) != len(requested) {
+		return false
+	}
+	for _, s := range requested {
+		if !slices.Contains(grantedScopes, s) {
+			return false
+		}
+	}
+	return true
 }
 
 // GetAccessToken returns a valid bearer token for the given scopes, obtaining a
 // new one from the platform if no cached token is available.
 func (c *Connector) GetAccessToken(ctx context.Context, scopes []string) (string, error) {
+	// The Security Framework §3 requires TLS for the token endpoint, with the
+	// same loopback exemption as service calls (local testing).
+	if u, err := url.Parse(c.reg.AuthTokenURL); err != nil || (u.Scheme != "https" && !isLoopbackHost(u.Host)) {
+		return "", fmt.Errorf("connector: insecure OAuth token endpoint %q: the 1EdTech Security Framework §3 requires TLS (loopback hosts are exempt for local testing)", c.reg.AuthTokenURL)
+	}
+
 	key := scopeKey(scopes)
 
 	// Hold the lock for the entire check-and-fetch to prevent concurrent goroutines
@@ -151,6 +205,9 @@ func (c *Connector) GetAccessToken(ctx context.Context, scopes []string) (string
 	}
 	if !strings.EqualFold(tr.TokenType, "bearer") {
 		return "", fmt.Errorf("connector: token response has unsupported token_type %q, want Bearer", tr.TokenType)
+	}
+	if !scopeSetEqual(tr.Scope, scopes) {
+		return "", fmt.Errorf("connector: token endpoint granted scope %q does not match requested scopes %v", tr.Scope, scopes)
 	}
 
 	expiresIn := tr.ExpiresIn
@@ -248,6 +305,10 @@ func WithAccept(accept string) RequestOption {
 // It obtains a bearer token for the given scopes, adds it as a Bearer Authorization
 // header, and returns the raw response.
 func (c *Connector) Request(ctx context.Context, method, serviceURL string, body io.Reader, scopes []string, opts ...RequestOption) (*ServiceResponse, error) {
+	if err := requireSecureServiceURL(serviceURL); err != nil {
+		return nil, err
+	}
+
 	token, err := c.GetAccessToken(ctx, scopes)
 	if err != nil {
 		return nil, fmt.Errorf("connector: failed to get access token: %w", err)

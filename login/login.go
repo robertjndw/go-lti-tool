@@ -39,10 +39,12 @@ type Config struct {
 	// unsigned login request. Empty means no restriction.
 	AllowedRedirectHosts []string
 
-	// RequireHTTPSTargetLinkURI rejects a login initiation whose target_link_uri
-	// is not https. The 1EdTech Security Framework requires TLS for LTI messages
-	// and resource URLs; this defaults to false to keep local-development http
-	// tools working, and should be enabled for spec-strict/production deployments.
+	// RequireHTTPSTargetLinkURI is retained for explicit configuration and API
+	// stability. The 1EdTech Security Framework §3 unconditionally requires
+	// TLS for LTI message URLs ("Platforms and Consumers MUST send all
+	// requests and responses using TLS"), so HandleLogin already rejects a
+	// non-https target_link_uri regardless of this field's value; there is
+	// currently no supported way to opt out.
 	RequireHTTPSTargetLinkURI bool
 }
 
@@ -98,7 +100,7 @@ func HandleLogin(ctx context.Context, cfg Config, r *http.Request) (redirectURL 
 	clientID := r.FormValue("client_id")
 	ltiDeploymentID := r.FormValue("lti_deployment_id")
 
-	if err := validateTargetLinkURI(targetLinkURI, cfg.AllowedRedirectHosts, cfg.RequireHTTPSTargetLinkURI); err != nil {
+	if err := validateTargetLinkURI(targetLinkURI, cfg.AllowedRedirectHosts); err != nil {
 		return "", nil, err
 	}
 
@@ -172,18 +174,16 @@ func HandleLogin(ctx context.Context, cfg Config, r *http.Request) (redirectURL 
 	return authURL.String(), cookieList, nil
 }
 
-// validateTargetLinkURI checks the unsigned target_link_uri parameter: it must
-// parse as an absolute http(s) URL (or https-only when requireHTTPS is set)
-// and, when allowedHosts is non-empty, its host must be in the list.
-func validateTargetLinkURI(targetLinkURI string, allowedHosts []string, requireHTTPS bool) error {
+// validateTargetLinkURI checks the unsigned target_link_uri parameter: the
+// 1EdTech Security Framework §3 unconditionally requires TLS, so it must
+// parse as an absolute https URL, and, when allowedHosts is non-empty, its
+// host must be in the list.
+func validateTargetLinkURI(targetLinkURI string, allowedHosts []string) error {
 	u, err := url.Parse(targetLinkURI)
 	if err != nil {
 		return fmt.Errorf("lti/login: invalid target_link_uri: %w", err)
 	}
-	if u.Scheme != "https" && u.Scheme != "http" {
-		return fmt.Errorf("lti/login: target_link_uri must be an absolute http(s) URL")
-	}
-	if requireHTTPS && u.Scheme != "https" {
+	if u.Scheme != "https" {
 		return fmt.Errorf("lti/login: target_link_uri must use https")
 	}
 	if u.Host == "" {
